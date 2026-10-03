@@ -1,0 +1,83 @@
+package dev.colony.camera.client.screen;
+
+import java.util.List;
+
+/** Shared drawing/hit geometry in scaled GUI pixels, independent of game APIs. */
+public final class StrategyHudLayout {
+    public enum Action { SURFACE, VOLUME, ADDITIVE, CLEAR, ANGLE_LOCK, HELP, EXIT }
+
+    public record Rect(int x, int y, int width, int height) {
+        public int right() { return x + width; }
+        public int bottom() { return y + height; }
+        public boolean contains(double px, double py) {
+            return Double.isFinite(px) && Double.isFinite(py)
+                    && px >= x && px < right() && py >= y && py < bottom();
+        }
+    }
+
+    public record Control(Action action, Rect bounds) { }
+
+    private final Rect title;
+    private final Rect selection;
+    private final Rect dock;
+    private final Rect hint;
+    private final Rect help;
+    private final List<Control> controls;
+
+    public StrategyHudLayout(int width, int height) {
+        if (width < 1 || height < 1) {
+            throw new IllegalArgumentException("Viewport dimensions must be positive");
+        }
+        int margin = Math.min(8, Math.min(width, height) / 8);
+        int buttonSize = Math.min(26, (width - 2 * margin) / 7);
+        int buttonGap = Math.min(4, margin);
+        int rightStart = width - margin - 3 * buttonSize - 2 * buttonGap;
+        title = new Rect(margin, margin, Math.max(0, Math.min(148, rightStart - margin - buttonGap)),
+                Math.min(32, Math.max(0, height - 2 * margin)));
+        int dockWidth = Math.min(360, width - 2 * margin);
+        int dockHeight = Math.min(44, Math.max(0, height - 2 * margin));
+        dock = new Rect((width - dockWidth) / 2, height - margin - dockHeight, dockWidth, dockHeight);
+        int hintBottom = Math.max(margin, dock.y() - Math.min(4, margin));
+        int hintHeight = Math.min(20, Math.max(0, hintBottom - margin));
+        int hintWidth = Math.min(480, width - 2 * margin);
+        hint = new Rect((width - hintWidth) / 2, hintBottom - hintHeight, hintWidth, hintHeight);
+        int cardY = Math.min(height - margin, title.bottom() + Math.min(8, margin));
+        selection = new Rect(margin, cardY, Math.min(168, Math.max(0, (width - 2 * margin) / 2 - 12)),
+                Math.min(66, Math.max(0, hint.y() - cardY - Math.min(6, margin))));
+        int helpWidth = Math.min(332, width - 2 * margin);
+        int helpHeight = Math.min(192, height - 2 * margin);
+        help = new Rect((width - helpWidth) / 2, (height - helpHeight) / 2, helpWidth, helpHeight);
+        int inset = Math.min(4, margin);
+        int available = Math.max(0, dock.width() - 2 * inset);
+        controls = List.of(
+                tool(Action.SURFACE, 0, available, inset), tool(Action.VOLUME, 1, available, inset),
+                tool(Action.ADDITIVE, 2, available, inset), tool(Action.CLEAR, 3, available, inset),
+                new Control(Action.ANGLE_LOCK, new Rect(rightStart, margin, buttonSize, Math.min(buttonSize, height - margin))),
+                new Control(Action.HELP, new Rect(rightStart + buttonSize + buttonGap, margin, buttonSize, Math.min(buttonSize, height - margin))),
+                new Control(Action.EXIT, new Rect(rightStart + 2 * (buttonSize + buttonGap), margin, buttonSize, Math.min(buttonSize, height - margin))));
+    }
+
+    private Control tool(Action action, int index, int available, int inset) {
+        int left = dock.x() + inset + available * index / 4;
+        int right = dock.x() + inset + available * (index + 1) / 4;
+        return new Control(action, new Rect(left, dock.y() + inset, right - left,
+                Math.max(0, dock.height() - 2 * inset)));
+    }
+
+    public Rect title() { return title; }
+    public Rect selection() { return selection; }
+    public Rect dock() { return dock; }
+    public Rect hint() { return hint; }
+    public Rect help() { return help; }
+    public List<Control> controls() { return controls; }
+
+    public Action actionAt(double x, double y) {
+        return controls.stream().filter(control -> control.bounds().contains(x, y))
+                .map(Control::action).findFirst().orElse(null);
+    }
+
+    public boolean blocksWorld(double x, double y, boolean helpOpen) {
+        return helpOpen || title.contains(x, y) || selection.contains(x, y)
+                || dock.contains(x, y) || hint.contains(x, y) || actionAt(x, y) != null;
+    }
+}

@@ -1,0 +1,184 @@
+import groovy.json.JsonSlurper
+import java.util.zip.ZipFile
+
+plugins {
+    id 'eclipse'
+    id 'idea'
+    id 'net.minecraftforge.gradle' version '6.0.54'
+}
+
+version = mod_version
+group = mod_group_id
+base { archivesName = mod_id }
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+minecraft {
+    mappings channel: mapping_channel, version: mapping_version
+    accessTransformer = file('src/main/resources/META-INF/accesstransformer.cfg')
+    copyIdeResources = true
+    runs {
+        configureEach {
+            workingDirectory project.file('run')
+            property 'forge.logging.console.level', 'info'
+            mods {
+                "${mod_id}" { source sourceSets.main }
+            }
+        }
+        client {}
+        // Reserved for the future server-authoritative construction feature.
+        server { args '--nogui' }
+        data {
+            workingDirectory project.file('run-data')
+            args '--mod', mod_id, '--all', '--output', file('src/generated/resources/'),
+                    '--existing', file('src/main/resources/')
+        }
+    }
+}
+
+sourceSets.main.resources { srcDir 'src/generated/resources' }
+repositories { mavenCentral() }
+
+dependencies {
+    minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.2'
+}
+
+tasks.named('test', Test).configure {
+    useJUnitPlatform()
+    testLogging { events 'failed', 'skipped' }
+}
+
+tasks.named('processResources', ProcessResources).configure {
+    filteringCharset = 'UTF-8'
+    def properties = [
+            minecraft_version: minecraft_version, minecraft_version_range: minecraft_version_range,
+            forge_version: forge_version, forge_version_range: forge_version_range,
+            loader_version_range: loader_version_range,
+            mod_id: mod_id, mod_name: mod_name, mod_license: mod_license, mod_version: mod_version,
+            mod_authors: mod_authors, mod_description: mod_description
+    ]
+    inputs.properties properties
+    filesMatching(['META-INF/mods.toml', 'pack.mcmeta']) { expand properties }
+}
+
+tasks.named('jar', Jar).configure {
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+    manifest {
+        attributes([
+                'Specification-Title': mod_id,
+                'Specification-Version': '1',
+                'Implementation-Title': project.name,
+                'Implementation-Version': mod_version,
+                'Implementation-Vendor': mod_authors
+        ])
+    }
+    finalizedBy 'reobfJar'
+}
+
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+
+tasks.register('verifyArchitecture') {
+    group = 'verification'
+    description = 'Checks side separation, mod identity and resource consistency.'
+    inputs.dir 'src/main/java'
+    inputs.dir 'src/main/resources'
+    inputs.property 'mod_id', mod_id
+    doLast {
+        def sourceRoot = file('src/main/java')
+        fileTree(sourceRoot).matching { include '**/*.java' }.each { source ->
+            def text = source.getText('UTF-8')
+            def relative = sourceRoot.toPath().relativize(source.toPath()).toString().replace('\\', '/')
+            if (!relative.contains('/client/')) {
+                if (text =~ /(?m)^import\s+(net\.minecraft\.client\.|net\.minecraftforge\.client\.|com\.mojang\.blaze3d\.|org\.lwjgl\.|dev\.colony\.camera\.client\.)/) {
+                    throw new GradleException("Client dependency outside client/: ${relative}")
+                }
+            }
+            if (relative.contains('/client/') && text.contains('@Mod.EventBusSubscriber') && !text.contains('value = Dist.CLIENT')) {
+                throw new GradleException("Explicit client subscriber side required: ${relative}")
+            }
+        }
+        def entrypoint = file('src/main/java/dev/colony/camera/ColonyCamera.java').getText('UTF-8')
+        if (!entrypoint.contains("ID = \"${mod_id}\"")) {
+            throw new GradleException('Entrypoint ID differs from gradle.properties')
+        }
+        def cameraState = file('src/main/java/dev/colony/camera/client/camera/CameraState.java').getText('UTF-8')
+        if (cameraState =~ /(?m)^import\s+(net\.|org\.lwjgl\.|com\.mojang\.|dev\.colony\.)/) {
+            throw new GradleException('CameraState must remain independent of game APIs')
+        }
+        ['SelectionState', 'SelectionBoxes', 'FaceSelection', 'SurfaceSelectionJob', 'HeightSelection'].each { model ->
+            def text = file("src/main/java/dev/colony/camera/client/selection/${model}.java").getText('UTF-8')
+            if (text =~ /(?m)^import\s+(net\.|org\.|com\.)/) {
+                throw new GradleException("${model} must remain independent of game APIs")
+            }
+        }
+        def hudLayout = file('src/main/java/dev/colony/camera/client/screen/StrategyHudLayout.java').getText('UTF-8')
+        if (hudLayout =~ /(?m)^import\s+(net\.|org\.|com\.)/) {
+            throw new GradleException('StrategyHudLayout must remain independent of game APIs')
+        }
+        def parser = new JsonSlurper()
+        def english = parser.parse(file("src/main/resources/assets/${mod_id}/lang/en_us.json"), 'UTF-8')
+        def chinese = parser.parse(file("src/main/resources/assets/${mod_id}/lang/zh_cn.json"), 'UTF-8')
+        if (english.keySet() != chinese.keySet()) {
+            throw new GradleException('en_us and zh_cn must have the same translation keys')
+        }
+    }
+}
+
+tasks.register('verifyModJar') {
+    group = 'verification'
+    description = 'Inspects the reobfuscated release JAR.'
+    dependsOn 'reobfJar'
+    def artifact = tasks.named('jar', Jar).flatMap { it.archiveFile }
+    inputs.file artifact
+    doLast {
+        new ZipFile(artifact.get().asFile).withCloseable { zip ->
+            def required = [
+                    'META-INF/mods.toml', 'META-INF/accesstransformer.cfg',
+                    'dev/colony/camera/ColonyCamera.class',
+                    'dev/colony/camera/client/camera/CameraState.class',
+                    'dev/colony/camera/client/camera/CameraFrameClock.class',
+                    'dev/colony/camera/client/camera/StrategyCameraController.class',
+                    'dev/colony/camera/client/input/CameraClientEvents.class',
+                    'dev/colony/camera/client/input/CameraKeyMappings.class',
+                    'dev/colony/camera/client/screen/StrategyScreen.class',
+                    'dev/colony/camera/client/screen/StrategyHud.class',
+                    'dev/colony/camera/client/screen/StrategyHudLayout.class',
+                    'dev/colony/camera/client/selection/CursorRay.class',
+                    'dev/colony/camera/client/selection/BlockSelectionController.class',
+                    'dev/colony/camera/client/selection/SelectionState.class',
+                    'dev/colony/camera/client/selection/SelectionBoxes.class',
+                    'dev/colony/camera/client/selection/FaceSelection.class',
+                    'dev/colony/camera/client/selection/SurfaceSelectionJob.class',
+                    'dev/colony/camera/client/selection/HeightSelection.class',
+                    "assets/${mod_id}/lang/en_us.json", "assets/${mod_id}/lang/zh_cn.json"
+            ]
+            required.each { path ->
+                if (zip.getEntry(path) == null) throw new GradleException("Missing JAR entry: ${path}")
+            }
+            def readEntry = { path -> zip.getInputStream(zip.getEntry(path)).withCloseable { it.getText('UTF-8') } }
+            def metadata = readEntry('META-INF/mods.toml')
+            if (metadata.contains('${') || !metadata.contains("modId=\"${mod_id}\"") ||
+                    !metadata.contains("version=\"${mod_version}\"") ||
+                    !metadata.contains("displayName=\"${mod_name}\"") ||
+                    !metadata.contains("authors=\"${mod_authors}\"") ||
+                    !metadata.contains("description='''${mod_description}'''")) {
+                throw new GradleException('JAR metadata has unexpanded or inconsistent properties')
+            }
+            def at = readEntry('META-INF/accesstransformer.cfg')
+            if (!at.contains('public net.minecraft.client.Camera m_90581_(Lnet/minecraft/world/phys/Vec3;)V')) {
+                throw new GradleException('Required camera access transformer is missing')
+            }
+            if (zip.getEntry('dev/colony/camera/StrategyCamera.class') != null) {
+                throw new GradleException('Obsolete prototype class remains in the release JAR')
+            }
+            if (zip.getEntry('dev/colony/camera/client/selection/MarqueeSelectionJob.class') != null) {
+                throw new GradleException('Obsolete screen sampling remains in the release JAR')
+            }
+        }
+    }
+}
+
+tasks.named('check').configure { dependsOn 'verifyArchitecture' }
+tasks.named('build').configure { dependsOn 'verifyModJar' }

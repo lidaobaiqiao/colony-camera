@@ -1,0 +1,11 @@
+Colony Camera project code: All Rights Reserved.
+
+No additional reuse or redistribution license is granted for original project
+code at this stage. The project owner may choose a license later.
+
+Third-party components retain their own licenses. The Forge MDK license text
+shipped with the original template is preserved in
+docs/licenses/forge-mdk-LICENSE.txt. The Gradle wrapper is supplied by Gradle
+under Apache License 2.0: https://www.apache.org/licenses/LICENSE-2.0
+
+This project does not incorporate Reign of Nether source code.

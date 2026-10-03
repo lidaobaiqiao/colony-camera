@@ -1,0 +1,30 @@
+# IDE and generated output
+.idea/
+.settings/
+.metadata/
+.classpath
+.project
+*.iml
+*.ipr
+*.iws
+*.launch
+bin/
+out/
+eclipse/
+
+# Gradle and development worlds (never track saves or credentials)
+.gradle/
+build/
+run/
+run-data/
+mcmodsrepo/
+dist/
+work/
+*.log
+.env
+.env.*
+!.env.example
+
+# Keep the Gradle wrapper JAR; do not blanket-ignore *.jar.
+forge*changelog.txt
+!docs/upstream/forge-mdk-changelog.txt

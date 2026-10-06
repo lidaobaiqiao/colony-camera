@@ -19,7 +19,7 @@ run/
 run-data/
 mcmodsrepo/
 dist/
-work/
+/work/
 *.log
 .env
 .env.*

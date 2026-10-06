@@ -1,10 +1,13 @@
 package dev.colony.camera.client.screen;
 
 import java.util.List;
+import java.util.Objects;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /** Shared drawing/hit geometry in scaled GUI pixels, independent of game APIs. */
 public final class StrategyHudLayout {
-    public enum Action { SURFACE, VOLUME, ADDITIVE, CLEAR, ANGLE_LOCK, HELP, EXIT }
+    public enum Action { SIMILAR, VOLUME, ADDITIVE, CLEAR, SAVE_PRESET, LIBRARY, WORK, SIMILAR_LIMIT, ANGLE_LOCK, HELP, EXIT }
 
     public record Rect(int x, int y, int width, int height) {
         public int right() { return x + width; }
@@ -15,13 +18,19 @@ public final class StrategyHudLayout {
         }
     }
 
-    public record Control(Action action, Rect bounds) { }
+    public record Control(@Nonnull Action action, @Nonnull Rect bounds) {
+        public Control {
+            Objects.requireNonNull(action, "action");
+            Objects.requireNonNull(bounds, "bounds");
+        }
+    }
 
     private final Rect title;
     private final Rect selection;
     private final Rect dock;
     private final Rect hint;
     private final Rect help;
+    private final Rect similarLimitDialog;
     private final List<Control> controls;
 
     public StrategyHudLayout(int width, int height) {
@@ -34,7 +43,7 @@ public final class StrategyHudLayout {
         int rightStart = width - margin - 3 * buttonSize - 2 * buttonGap;
         title = new Rect(margin, margin, Math.max(0, Math.min(148, rightStart - margin - buttonGap)),
                 Math.min(32, Math.max(0, height - 2 * margin)));
-        int dockWidth = Math.min(360, width - 2 * margin);
+        int dockWidth = Math.min(480, width - 2 * margin);
         int dockHeight = Math.min(44, Math.max(0, height - 2 * margin));
         dock = new Rect((width - dockWidth) / 2, height - margin - dockHeight, dockWidth, dockHeight);
         int hintBottom = Math.max(margin, dock.y() - Math.min(4, margin));
@@ -47,19 +56,25 @@ public final class StrategyHudLayout {
         int helpWidth = Math.min(332, width - 2 * margin);
         int helpHeight = Math.min(192, height - 2 * margin);
         help = new Rect((width - helpWidth) / 2, (height - helpHeight) / 2, helpWidth, helpHeight);
+        int dialogWidth = Math.min(280, width - 2 * margin);
+        int dialogHeight = Math.min(128, height - 2 * margin);
+        similarLimitDialog = new Rect((width - dialogWidth) / 2, (height - dialogHeight) / 2, dialogWidth, dialogHeight);
         int inset = Math.min(4, margin);
         int available = Math.max(0, dock.width() - 2 * inset);
         controls = List.of(
-                tool(Action.SURFACE, 0, available, inset), tool(Action.VOLUME, 1, available, inset),
+                tool(Action.SIMILAR, 0, available, inset), tool(Action.VOLUME, 1, available, inset),
                 tool(Action.ADDITIVE, 2, available, inset), tool(Action.CLEAR, 3, available, inset),
+                tool(Action.SAVE_PRESET, 4, available, inset), tool(Action.LIBRARY, 5, available, inset),
+                tool(Action.WORK, 6, available, inset),
+                tool(Action.SIMILAR_LIMIT, 7, available, inset),
                 new Control(Action.ANGLE_LOCK, new Rect(rightStart, margin, buttonSize, Math.min(buttonSize, height - margin))),
                 new Control(Action.HELP, new Rect(rightStart + buttonSize + buttonGap, margin, buttonSize, Math.min(buttonSize, height - margin))),
                 new Control(Action.EXIT, new Rect(rightStart + 2 * (buttonSize + buttonGap), margin, buttonSize, Math.min(buttonSize, height - margin))));
     }
 
     private Control tool(Action action, int index, int available, int inset) {
-        int left = dock.x() + inset + available * index / 4;
-        int right = dock.x() + inset + available * (index + 1) / 4;
+        int left = dock.x() + inset + available * index / 8;
+        int right = dock.x() + inset + available * (index + 1) / 8;
         return new Control(action, new Rect(left, dock.y() + inset, right - left,
                 Math.max(0, dock.height() - 2 * inset)));
     }
@@ -69,11 +84,17 @@ public final class StrategyHudLayout {
     public Rect dock() { return dock; }
     public Rect hint() { return hint; }
     public Rect help() { return help; }
+    public Rect similarLimitDialog() { return similarLimitDialog; }
     public List<Control> controls() { return controls; }
 
+    @Nullable
     public Action actionAt(double x, double y) {
-        return controls.stream().filter(control -> control.bounds().contains(x, y))
-                .map(Control::action).findFirst().orElse(null);
+        for (Control control : controls) {
+            if (control.bounds().contains(x, y)) {
+                return control.action();
+            }
+        }
+        return null;
     }
 
     public boolean blocksWorld(double x, double y, boolean helpOpen) {

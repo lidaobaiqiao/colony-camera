@@ -128,7 +128,9 @@ class HeightSelectionTest {
         SelectionState.Cell anchor = new SelectionState.Cell(-4, 8, -2);
         for (FaceSelection.Face face : FaceSelection.Face.values()) {
             FaceSelection selection = new FaceSelection(anchor, face, 0);
-            selection.followSurface(new SelectionState.Cell(-2, 10, 1));
+            assertTrue(selection.update(new CursorRay.Point(face.axis() == 0 ? 1 : -1.5,
+                            face.axis() == 1 ? 1 : 10.5, face.axis() == 2 ? 1 : 1.5),
+                    new CursorRay.Point(face.axis() == 0 ? -1 : 0, face.axis() == 1 ? -1 : 0, face.axis() == 2 ? -1 : 0)));
             long area = selection.bounds(1).volume();
             height.begin(100);
             height.move(60, 20);

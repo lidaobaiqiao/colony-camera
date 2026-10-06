@@ -1,0 +1,9 @@
+{
+  "textures": {
+    "side": "minecraft:block/barrel_side",
+    "bottom": "minecraft:block/barrel_side",
+    "top": "minecraft:block/barrel_side",
+    "front": "minecraft:block/barrel_top"
+  },
+  "parent": "minecraft:block/orientable"
+}

@@ -8,6 +8,24 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class StrategyHudLayoutTest {
     @Test
+    void similarAndVolumeToolsHaveASeparateLimitEntryWithoutCoveringTheSceneCenter() {
+        StrategyHudLayout layout = new StrategyHudLayout(320, 180);
+        assertEquals(StrategyHudLayout.Action.SIMILAR, layout.controls().get(0).action());
+        assertEquals(StrategyHudLayout.Action.VOLUME, layout.controls().get(1).action());
+        assertEquals(1, layout.controls().stream().filter(c -> c.action() == StrategyHudLayout.Action.SIMILAR_LIMIT).count());
+        assertFalse(layout.blocksWorld(160, 90, false));
+    }
+
+    @Test
+    void limitDialogRemainsInsideTheViewportAtAllSupportedGuiScales() {
+        for (int[] size : new int[][] {{320, 180}, {480, 270}, {640, 360}}) {
+            var rect = new StrategyHudLayout(size[0], size[1]).similarLimitDialog();
+            assertTrue(rect.width() >= 120 && rect.height() >= 116);
+            assertTrue(rect.x() >= 0 && rect.y() >= 0 && rect.right() <= size[0] && rect.bottom() <= size[1]);
+        }
+    }
+
+    @Test
     void commonGuiScalesKeepAllControlsInsideTheViewport() {
         for (int[] size : new int[][] {{320, 180}, {400, 225}, {480, 270}, {640, 360}, {854, 480}, {1920, 1080}}) {
             assertInside(new StrategyHudLayout(size[0], size[1]), size[0], size[1]);
@@ -89,8 +107,8 @@ class StrategyHudLayoutTest {
     }
 
     private static void assertInside(StrategyHudLayout layout, int width, int height) {
-        var rectangles = new ArrayList<>(layout.controls().stream().map(StrategyHudLayout.Control::bounds).toList());
-        rectangles.addAll(java.util.List.of(layout.title(), layout.selection(), layout.dock(), layout.hint(), layout.help()));
+        var rectangles = new ArrayList<>(layout.controls().stream().map(control -> control.bounds()).toList());
+        rectangles.addAll(java.util.List.of(layout.title(), layout.selection(), layout.dock(), layout.hint(), layout.help(), layout.similarLimitDialog()));
         for (StrategyHudLayout.Rect rect : rectangles) {
             assertTrue(rect.x() >= 0 && rect.y() >= 0 && rect.width() >= 0 && rect.height() >= 0, rect.toString());
             assertTrue(rect.right() <= width && rect.bottom() <= height, rect.toString());

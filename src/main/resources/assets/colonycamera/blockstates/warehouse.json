@@ -1,0 +1,36 @@
+{
+  "variants": {
+    "facing=north,lit=false": {
+      "model": "colonycamera:block/warehouse",
+      "y": 0
+    },
+    "facing=north,lit=true": {
+      "model": "colonycamera:block/warehouse",
+      "y": 0
+    },
+    "facing=east,lit=false": {
+      "model": "colonycamera:block/warehouse",
+      "y": 90
+    },
+    "facing=east,lit=true": {
+      "model": "colonycamera:block/warehouse",
+      "y": 90
+    },
+    "facing=south,lit=false": {
+      "model": "colonycamera:block/warehouse",
+      "y": 180
+    },
+    "facing=south,lit=true": {
+      "model": "colonycamera:block/warehouse",
+      "y": 180
+    },
+    "facing=west,lit=false": {
+      "model": "colonycamera:block/warehouse",
+      "y": 270
+    },
+    "facing=west,lit=true": {
+      "model": "colonycamera:block/warehouse",
+      "y": 270
+    }
+  }
+}

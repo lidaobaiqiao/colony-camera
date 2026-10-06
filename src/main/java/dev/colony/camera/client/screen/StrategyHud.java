@@ -3,11 +3,16 @@ package dev.colony.camera.client.screen;
 import dev.colony.camera.client.camera.StrategyCameraController;
 import dev.colony.camera.client.input.CameraKeyMappings;
 import dev.colony.camera.client.selection.BlockSelectionController;
+import dev.colony.camera.client.planning.ProjectionController;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.FormattedCharSequence;
 
+import javax.annotation.Nonnull;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /** Draws the strategy HUD. Geometry and input ownership use the same layout. */
 final class StrategyHud {
@@ -27,20 +32,20 @@ final class StrategyHud {
     void resize(int width, int height) {
         layout = new StrategyHudLayout(width, height);
         helpRows = List.of(
-                new HelpRow(text("mouse.left"), text("help.surface")),
+                new HelpRow(text("mouse.left"), text("help.similar")),
                 new HelpRow(text("mouse.left"), text("help.volume")),
                 new HelpRow(text("mouse.right"), text("help.pan")),
                 new HelpRow(text("mouse.middle"), text("help.rotate")),
                 new HelpRow(CameraKeyMappings.angleLockKeyName(), text("help.angle_lock")),
                 new HelpRow(text("mouse.wheel"), text("help.zoom")),
-                new HelpRow(Component.literal("W / A / S / D"), text("help.move")),
-                new HelpRow(Component.empty().append(CameraKeyMappings.moveUpKeyName()).append(" / ")
-                        .append(CameraKeyMappings.moveDownKeyName()), text("help.elevation")),
-                new HelpRow(Component.literal("Shift"), text("help.speed")),
+                new HelpRow(Objects.requireNonNull(Component.literal("W / A / S / D")), text("help.move")),
+                new HelpRow(Objects.requireNonNull(Component.empty().append(CameraKeyMappings.moveUpKeyName()).append(" / ")
+                        .append(CameraKeyMappings.moveDownKeyName())), text("help.elevation")),
+                new HelpRow(Objects.requireNonNull(Component.literal("Shift")), text("help.speed")),
                 new HelpRow(CameraKeyMappings.addSelectionKeyName(), text("help.additive")),
                 new HelpRow(CameraKeyMappings.volumeSelectionKeyName(), text("help.mode")),
                 new HelpRow(CameraKeyMappings.clearSelectionKeyName(), text("help.clear")),
-                new HelpRow(Component.empty().append(CameraKeyMappings.toggleKeyName()).append(" / Esc"), text("help.exit")));
+                new HelpRow(Objects.requireNonNull(Component.empty().append(CameraKeyMappings.toggleKeyName()).append(" / Esc")), text("help.exit")));
     }
 
     StrategyHudLayout layout() { return layout; }
@@ -48,16 +53,17 @@ final class StrategyHud {
     void toggleHelp() { helpOpen = !helpOpen; }
     void closeHelp() { helpOpen = false; }
 
-    void render(GuiGraphics graphics, Font font, StrategyCameraController controller, int mouseX, int mouseY,
+    void render(GuiGraphics graphics, @Nonnull Font font, StrategyCameraController controller, int mouseX, int mouseY,
                 int width, int height) {
         BlockSelectionController selection = controller.selection();
         drawTitle(graphics, font);
-        drawSelection(graphics, font, selection);
+        if (ProjectionController.instance().draft() == null) drawSelection(graphics, font, selection);
         panel(graphics, layout.dock());
         for (StrategyHudLayout.Control control : layout.controls()) {
             drawControl(graphics, font, control, controller, !helpOpen && control.bounds().contains(mouseX, mouseY));
         }
-        Component hint = hint(selection);
+        ProjectionController planning = ProjectionController.instance();
+        Component hint = planning.draft() != null || planning.recentStatus() ? planning.status() : hint(selection);
         StrategyHudLayout.Rect hintBounds = layout.hint();
         panel(graphics, hintBounds);
         graphics.fill(hintBounds.x() + 1, hintBounds.y() + 3, hintBounds.x() + 3, hintBounds.bottom() - 3,
@@ -78,7 +84,7 @@ final class StrategyHud {
         }
     }
 
-    private void drawTitle(GuiGraphics graphics, Font font) {
+    private void drawTitle(GuiGraphics graphics, @Nonnull Font font) {
         StrategyHudLayout.Rect bounds = layout.title();
         panel(graphics, bounds);
         icon(graphics, StrategyHudLayout.Action.VOLUME, bounds.x() + 8, bounds.y() + 9, ACCENT, false);
@@ -86,20 +92,20 @@ final class StrategyHud {
         drawFitted(graphics, font, text("subtitle"), bounds.x() + 29, bounds.y() + 19, bounds.width() - 35, MUTED);
     }
 
-    private void drawSelection(GuiGraphics graphics, Font font, BlockSelectionController selection) {
+    private void drawSelection(GuiGraphics graphics, @Nonnull Font font, BlockSelectionController selection) {
         StrategyHudLayout.Rect bounds = layout.selection();
         if (bounds.height() < 40) {
             return;
         }
         panel(graphics, bounds);
         drawFitted(graphics, font, text("selection"), bounds.x() + 10, bounds.y() + 8, bounds.width() - 58, MUTED);
-        Component mode = text(selection.volumeMode() ? "tool.volume" : "tool.surface");
+        Component mode = text(selection.volumeMode() ? "tool.volume" : "tool.similar");
         int modeWidth = font.width(mode);
         graphics.drawString(font, mode, bounds.right() - modeWidth - 10, bounds.y() + 8, ACCENT, false);
         graphics.pose().pushPose();
         graphics.pose().translate(bounds.x() + 10, bounds.y() + 22, 0);
         graphics.pose().scale(1.8F, 1.8F, 1);
-        graphics.drawString(font, Integer.toString(selection.selectionCount()), 0, 0,
+        graphics.drawString(font, Objects.requireNonNull(Integer.toString(selection.selectionCount())), 0, 0,
                 selection.selectionCount() == 0 ? MUTED : GOLD, false);
         graphics.pose().popPose();
         graphics.drawString(font, text("blocks"), bounds.x() + 64, bounds.y() + 28, MUTED, false);
@@ -115,16 +121,16 @@ final class StrategyHud {
         }
     }
 
-    private void drawControl(GuiGraphics graphics, Font font, StrategyHudLayout.Control control,
+    private void drawControl(GuiGraphics graphics, @Nonnull Font font, StrategyHudLayout.Control control,
                              StrategyCameraController controller, boolean hovered) {
         StrategyHudLayout.Rect bounds = control.bounds();
         StrategyHudLayout.Action action = control.action();
         boolean tool = switch (action) {
-            case SURFACE, VOLUME, ADDITIVE, CLEAR -> true;
+            case SIMILAR, VOLUME, ADDITIVE, CLEAR, SAVE_PRESET, LIBRARY, WORK, SIMILAR_LIMIT -> true;
             default -> false;
         };
         boolean active = switch (action) {
-            case SURFACE -> !controller.selection().volumeMode();
+            case SIMILAR -> !controller.selection().volumeMode();
             case VOLUME -> controller.selection().volumeMode();
             case ADDITIVE -> controller.selection().additive();
             case ANGLE_LOCK -> controller.angleLocked();
@@ -139,11 +145,15 @@ final class StrategyHud {
                     hovered ? HOVER : ACTIVE);
         }
         int color = active ? ACCENT : hovered ? TEXT : MUTED;
-        icon(graphics, action, bounds.x() + (tool ? 8 : (bounds.width() - 14) / 2),
-                bounds.y() + (tool ? 7 : (bounds.height() - 14) / 2), color, controller.angleLocked());
+        boolean compact = tool && bounds.width() < 60;
+        if (!compact) {
+            icon(graphics, action, bounds.x() + (tool ? 8 : (bounds.width() - 14) / 2),
+                    bounds.y() + (tool ? 7 : (bounds.height() - 14) / 2), color, controller.angleLocked());
+        }
         if (tool) {
-            drawFitted(graphics, font, label(action), bounds.x() + 27, bounds.y() + 6, bounds.width() - 31, color);
-            drawFitted(graphics, font, binding(action), bounds.x() + 27, bounds.y() + 22, bounds.width() - 31, MUTED);
+            int inset = compact ? 5 : 27;
+            drawFitted(graphics, font, label(action), bounds.x() + inset, bounds.y() + 6, bounds.width() - inset - 4, color);
+            drawFitted(graphics, font, binding(action), bounds.x() + inset, bounds.y() + 22, bounds.width() - inset - 4, MUTED);
         }
         if (active) {
             graphics.fill(bounds.x() + 5, bounds.bottom() - 3, bounds.right() - 5, bounds.bottom() - 2,
@@ -151,7 +161,7 @@ final class StrategyHud {
         }
     }
 
-    private void drawHelp(GuiGraphics graphics, Font font, int mouseX, int mouseY, int width, int height) {
+    private void drawHelp(GuiGraphics graphics, @Nonnull Font font, int mouseX, int mouseY, int width, int height) {
         graphics.fill(0, 0, width, height, 0x80071019);
         StrategyHudLayout.Rect bounds = layout.help();
         panel(graphics, bounds);
@@ -177,20 +187,22 @@ final class StrategyHud {
         }
     }
 
+    @Nonnull
     private Component hint(BlockSelectionController selection) {
         if (!selection.statusMessage().getString().isEmpty()) {
             return selection.statusMessage();
         }
         if (selection.working()) {
-            return Component.translatable("screen.colonycamera.selection.working");
+            return Objects.requireNonNull(Component.translatable("screen.colonycamera.selection.working"));
         }
         if (selection.selectingHeight()) {
             return text("hint.height", selection.heightLayers(), Component.translatable(selection.heightOutward()
                     ? "screen.colonycamera.selection.outward" : "screen.colonycamera.selection.inward"));
         }
-        return text(selection.volumeMode() ? "hint.volume" : "hint.surface");
+        return selection.volumeMode() ? text("hint.volume") : text("hint.similar", dev.colony.camera.config.SelectionConfig.similarLimit());
     }
 
+    @Nonnull
     private Component tooltip(StrategyHudLayout.Action action, StrategyCameraController controller) {
         if (action == StrategyHudLayout.Action.ANGLE_LOCK) {
             return text(controller.angleLocked() ? "tip.unlock" : "tip.lock", CameraKeyMappings.angleLockKeyName());
@@ -198,43 +210,54 @@ final class StrategyHud {
         return text("tip." + action.name().toLowerCase(java.util.Locale.ROOT), binding(action));
     }
 
+    @Nonnull
     private Component label(StrategyHudLayout.Action action) {
         return text("tool." + action.name().toLowerCase(java.util.Locale.ROOT));
     }
 
+    @Nonnull
     private Component binding(StrategyHudLayout.Action action) {
         return switch (action) {
-            case SURFACE -> text("mouse.left.short");
+            case SIMILAR -> text("mouse.left.short");
+            case SIMILAR_LIMIT -> Objects.requireNonNull(Component.literal(Objects.requireNonNull(Integer.toString(dev.colony.camera.config.SelectionConfig.similarLimit()))));
             case VOLUME -> CameraKeyMappings.volumeSelectionKeyName();
             case ADDITIVE -> CameraKeyMappings.addSelectionKeyName();
             case CLEAR -> CameraKeyMappings.clearSelectionKeyName();
             case ANGLE_LOCK -> CameraKeyMappings.angleLockKeyName();
             case EXIT -> CameraKeyMappings.toggleKeyName();
-            case HELP -> Component.empty();
+            case HELP -> Objects.requireNonNull(Component.empty());
+            case SAVE_PRESET -> Objects.requireNonNull(Component.literal("B"));
+            case LIBRARY -> Objects.requireNonNull(Component.literal("P"));
+            case WORK -> Objects.requireNonNull(Component.literal("O"));
         };
     }
 
-    private static Component text(String suffix, Object... arguments) {
-        return Component.translatable("screen.colonycamera.ui." + suffix, arguments);
+    @Nonnull
+    private static Component text(@Nonnull String suffix, @Nonnull Object... arguments) {
+        return Objects.requireNonNull(Component.translatable("screen.colonycamera.ui." + suffix, arguments));
     }
 
-    private static void drawFitted(GuiGraphics graphics, Font font, Component text, int x, int y, int width, int color) {
+    static void drawFitted(GuiGraphics graphics, @Nonnull Font font, @Nonnull Component text, int x, int y, int width, int color) {
         if (width <= 0) {
             return;
         }
-        String value = text.getString();
+        String value = Objects.requireNonNull(text.getString());
         if (font.width(value) > width) {
             value = font.plainSubstrByWidth(value, Math.max(0, width - font.width("…"))) + "…";
         }
         graphics.drawString(font, value, x, y, color, false);
     }
 
-    private static void drawTooltip(GuiGraphics graphics, Font font, List<Component> lines, int mouseX, int mouseY, int width) {
+    private static void drawTooltip(GuiGraphics graphics, @Nonnull Font font, List<Component> lines, int mouseX, int mouseY, int width) {
         int wrapWidth = Math.max(1, Math.min(300, width - 24));
-        graphics.renderTooltip(font, lines.stream().flatMap(line -> font.split(line, wrapWidth).stream()).toList(), mouseX, mouseY);
+        List<FormattedCharSequence> wrapped = new ArrayList<>();
+        for (Component line : lines) {
+            wrapped.addAll(font.split(Objects.requireNonNull(line), wrapWidth));
+        }
+        graphics.renderTooltip(font, wrapped, mouseX, mouseY);
     }
 
-    private static void panel(GuiGraphics graphics, StrategyHudLayout.Rect bounds) {
+    static void panel(GuiGraphics graphics, StrategyHudLayout.Rect bounds) {
         if (bounds.width() < 2 || bounds.height() < 2) {
             return;
         }
@@ -247,7 +270,7 @@ final class StrategyHud {
     private static void icon(GuiGraphics graphics, StrategyHudLayout.Action action, int x, int y, int color, boolean locked) {
         int ink = 0xFF000000 | color;
         switch (action) {
-            case SURFACE -> {
+            case SIMILAR -> {
                 line(graphics, x, y + 7, x + 7, y + 3, ink);
                 line(graphics, x + 7, y + 3, x + 14, y + 7, ink);
                 line(graphics, x + 14, y + 7, x + 7, y + 11, ink);
@@ -291,6 +314,22 @@ final class StrategyHud {
                 line(graphics, x + 1, y + 7, x + 6, y + 2, ink);
                 line(graphics, x + 1, y + 7, x + 6, y + 12, ink);
             }
+            case SAVE_PRESET -> {
+                graphics.fill(x + 2, y + 1, x + 12, y + 13, ink);
+                graphics.fill(x + 4, y + 2, x + 9, y + 5, BACKGROUND);
+                graphics.fill(x + 4, y + 8, x + 10, y + 12, BACKGROUND);
+            }
+            case LIBRARY -> {
+                for (int row = 0; row < 3; row++) {
+                    graphics.fill(x + 1, y + 2 + row * 5, x + 4, y + 5 + row * 5, ink);
+                    graphics.fill(x + 6, y + 2 + row * 5, x + 13, y + 5 + row * 5, ink);
+                }
+            }
+            case SIMILAR_LIMIT, WORK -> {
+                graphics.fill(x + 2, y + 2, x + 12, y + 14, ink);
+                for (int row = 0; row < 3; row++) graphics.fill(x + 4, y + 4 + row * 3, x + 10, y + 5 + row * 3, BACKGROUND);
+                graphics.fill(x + 5, y, x + 9, y + 3, ink);
+            }
         }
     }
 
@@ -309,5 +348,5 @@ final class StrategyHud {
         }
     }
 
-    private record HelpRow(Component key, Component description) { }
+    private record HelpRow(@Nonnull Component key, @Nonnull Component description) { }
 }

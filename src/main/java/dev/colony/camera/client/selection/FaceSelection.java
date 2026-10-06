@@ -38,16 +38,6 @@ public final class FaceSelection {
         return endpoint;
     }
 
-    /** Uses the current surface hit for the footprint while preserving the captured normal layer. */
-    public void followSurface(SelectionState.Cell hitCell) {
-        Objects.requireNonNull(hitCell, "hitCell");
-        endpoint = switch (face.axis()) {
-            case 0 -> new SelectionState.Cell(anchor.x(), hitCell.y(), hitCell.z());
-            case 1 -> new SelectionState.Cell(hitCell.x(), anchor.y(), hitCell.z());
-            default -> new SelectionState.Cell(hitCell.x(), hitCell.y(), anchor.z());
-        };
-    }
-
     /** The captured face remains fixed even when the current ray crosses other blocks. */
     public boolean update(CursorRay.Point worldRayOrigin, CursorRay.Point worldRayDirection) {
         if (!finite(worldRayOrigin) || !finite(worldRayDirection)) {

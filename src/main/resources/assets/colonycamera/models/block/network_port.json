@@ -1,0 +1,9 @@
+{
+  "textures": {
+    "side": "minecraft:block/copper_block",
+    "bottom": "minecraft:block/copper_block",
+    "top": "minecraft:block/copper_block",
+    "front": "minecraft:block/observer_front"
+  },
+  "parent": "minecraft:block/orientable"
+}

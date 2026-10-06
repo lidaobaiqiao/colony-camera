@@ -2,13 +2,16 @@ package dev.colony.camera.client.selection;
 
 import org.joml.Matrix4f;
 
+import javax.annotation.Nullable;
+
 /** Unprojects screen coordinates into a ray relative to the camera's world position. */
 public final class CursorRay {
     private CursorRay() {
     }
 
+    @Nullable
     public static Ray unproject(double x, double y, double width, double height,
-                                Matrix4f inverseViewProjection) {
+                                @Nullable Matrix4f inverseViewProjection) {
         if (inverseViewProjection == null || !Double.isFinite(x) || !Double.isFinite(y)
                 || !Double.isFinite(width) || !Double.isFinite(height)
                 || width <= 0 || height <= 0 || x < 0 || x > width || y < 0 || y > height) {
@@ -38,6 +41,7 @@ public final class CursorRay {
         return new Ray(near, new Point(dx / length, dy / length, dz / length));
     }
 
+    @Nullable
     private static Point transform(double x, double y, double z, Matrix4f matrix) {
         double transformedX = matrix.m00() * x + matrix.m10() * y + matrix.m20() * z + matrix.m30();
         double transformedY = matrix.m01() * x + matrix.m11() * y + matrix.m21() * z + matrix.m31();

@@ -1,0 +1,9 @@
+{
+  "textures": {
+    "side": "minecraft:block/deepslate_tiles",
+    "bottom": "minecraft:block/deepslate_tiles",
+    "top": "minecraft:block/deepslate_tiles",
+    "front": "minecraft:block/sea_lantern"
+  },
+  "parent": "minecraft:block/orientable"
+}

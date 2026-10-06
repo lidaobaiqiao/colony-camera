@@ -1,0 +1,9 @@
+{
+  "textures": {
+    "side": "minecraft:block/iron_block",
+    "bottom": "minecraft:block/iron_block",
+    "top": "minecraft:block/iron_block",
+    "front": "minecraft:block/redstone_block"
+  },
+  "parent": "minecraft:block/orientable"
+}

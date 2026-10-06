@@ -24,7 +24,21 @@ java -version
 
 `build.ps1` 支持 `-Offline`，仅适用于依赖已缓存的环境。脚本调用 Wrapper，归档到 `dist/<version>/`，记录 SHA-256 和 `verification.json`。`build` 加入 `verifyArchitecture` 与 `verifyModJar`，验证包边界和交付包内容；这些检查不能替代游戏内验收。
 
+1.3.0 的最终 JAR 检查还要求打印/仓储/菜单类、全部五种设施的方块状态与模型/掉落表、七种物品模型与配方存在且 JSON 可解析。实际注册和交互由服务端 GameTest 验证，创造栏外观及客户端菜单仍需实机验收。网络协议为 2，客户端/服务端不得混装 1.2.0 和 1.3.0。
+
 原始构建产物位于 `build/libs/`。开发客户端使用 `run/`，不应将已有游玩存档作为开发测试目录。CI 和本地脚本复用 Gradle 构建，具体工作流配置以工程文件为准。
+
+修改服务端施工后，额外运行 `.\gradlew.bat runGameTestServer`（缓存齐全可加 `--offline`）。测试源码与结构模板在 `src/gameTest` 独立源集，运行于 `build/game-test-run` 下默认新建的测试世界；不要指定已有游玩存档。可用 `-PgameTestWorld=<新的测试目录名>` 固定测试目录。正式 `build` 不自动启动游戏服务器，测试类和结构不会进入发布 JAR；结果以服务端的 required tests passed/failed 汇总为准。ECJ 脚本同时检查 `src/main`、JUnit `src/test` 和 `src/gameTest`，游戏测试仍须编译和运行验证。
+
+编辑器空值分析与 javac 构建分开验证。使用本机 Eclipse ECJ batch compiler JAR（VS Code 的 Red Hat Java 扩展也附带该文件），运行：
+
+```powershell
+.\scripts\check-nullability.ps1 -CompilerJar '本机 ECJ 编译器 JAR 路径' -JavaHome '本机 JDK 17 的绝对路径' -Offline
+```
+
+脚本从 Gradle 导出依赖，按 `config/null-analysis.properties` 检查主源码、JUnit 和 GameTest，任何警告或错误都失败；结果以 UTF-8 写入 `build/null-analysis/check.log`。1.4.3 起先把主代码编译到本轮独有的 `build/null-analysis/main-classes-*` 目录，再逐个主文件及分别对 JUnit/GameTest 源集检查二进制依赖中的契约。不能只合并全部源码检查：ECJ 对源码和二进制中的 record 构造器、enum 方法注解存在不同分析结果，合并检查曾漏掉真实编辑器警告。检查不用旧项目类，不会把分析用类打入发布 JAR。
+
+优先使用当前 Red Hat Java 扩展附带的 ECJ 编译器，以免旧版通过而编辑器仍有新诊断；当前基线为 ECJ 3.46.100。它不下载编译器，也不修改编辑器全局设置，当前 CI 的普通构建不包含这项可选检查。项目 VS Code 设置保持自动空值分析，明确与脚本一致的 JSR-305 注解名称。只在文件树隐藏工作区根目录的 `work` 临时参考资料，不能用 `java.project.resourceFilters` 的 `work` 或 `files.exclude` 的 `**/work` 排除所有同名目录，否则任务系统和界面包会被屏蔽。自动模式没有识别 Minecraft 自定义返回值默认注解，因此在 API 边界检查返回值，不能在批量验证中额外启用这些默认注解来得到较宽松的结果。
 
 ## 代码规则
 
@@ -34,6 +48,7 @@ java -version
 - 界面文字走语言文件，至少保持 `zh_cn` 与 `en_us` 键一致，中文游戏语言下显示中文。模组列表名称/介绍等元数据默认用中文，在 `gradle.properties` 中使用 Unicode 转义保存并检查最终 JAR 的 UTF-8 文本。不要把实际快捷键提示写死为 F6。
 - 注释解释约束或原因，尤其是生命周期、事件阶段、访问转换器和区块范围限制。
 - 修改状态的入口应处理重复调用、退出世界和界面替换。避免每帧分配不必要对象，也不要为尚未测到的问题增加复杂缓存。
+- 使用 Forge 已有的 `javax.annotation.Nonnull/Nullable` 表达边界契约；可空世界/玩家先保存局部引用并检查，不能用其他方法中的检查代替当前访问的保护。分帧选择作业冻结世界上下文，世界变更时清理旧作业。纯 Java 模型不依赖 Minecraft 注解。
 - 新依赖要有具体用途；优先采用现有 Forge/Minecraft 能力。复制第三方代码前核对许可和来源，不把公开源码自动视为可任意复制。
 
 ## 改动与交付

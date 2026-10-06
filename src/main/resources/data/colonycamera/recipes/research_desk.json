@@ -1,0 +1,27 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "P": {
+      "tag": "minecraft:planks"
+    },
+    "C": {
+      "item": "minecraft:crafting_table"
+    },
+    "B": {
+      "item": "minecraft:book"
+    },
+    "I": {
+      "item": "minecraft:iron_ingot"
+    }
+  },
+  "pattern": [
+    " B ",
+    "ICI",
+    "PPP"
+  ],
+  "result": {
+    "item": "colonycamera:research_desk",
+    "count": 1
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "pattern": [
+    "IGI",
+    "RCR",
+    "III"
+  ],
+  "result": {
+    "item": "colonycamera:printing_core",
+    "count": 1
+  },
+  "category": "misc",
+  "type": "minecraft:crafting_shaped",
+  "key": {
+    "G": {
+      "item": "minecraft:glass"
+    },
+    "C": {
+      "item": "minecraft:crafting_table"
+    },
+    "R": {
+      "item": "minecraft:redstone"
+    },
+    "I": {
+      "item": "minecraft:iron_ingot"
+    }
+  }
+}

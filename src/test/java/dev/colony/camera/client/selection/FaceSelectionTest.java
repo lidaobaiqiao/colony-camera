@@ -57,42 +57,6 @@ class FaceSelectionTest {
     }
 
     @Test
-    void surfaceHitsOnEitherSideOfEveryFaceUseTheirTangentsAndKeepTheAnchorLayer() {
-        for (FaceSelection.Face face : FaceSelection.Face.values()) {
-            double plane = coordinate(ANCHOR, face.axis()) + 0.5;
-            FaceSelection selection = new FaceSelection(ANCHOR, face, plane);
-            for (SelectionState.Cell hit : List.of(new SelectionState.Cell(-8, -20, 7),
-                    new SelectionState.Cell(15, 42, -16))) {
-                selection.followSurface(hit);
-                int[] expected = {hit.x(), hit.y(), hit.z()};
-                expected[face.axis()] = coordinate(ANCHOR, face.axis());
-                SelectionState.Cell endpoint = new SelectionState.Cell(expected[0], expected[1], expected[2]);
-
-                assertEquals(endpoint, selection.endpoint(), face.toString());
-                assertEquals(endpoint, selection.bounds(1).second());
-                assertEquals(ANCHOR, selection.anchor());
-                assertEquals(plane, selection.planeCoordinate());
-                for (CursorRay.Point corner : selection.corners()) {
-                    assertEquals(plane, coordinate(corner, face.axis()));
-                }
-            }
-        }
-    }
-
-    @Test
-    void rejectedNullSurfaceHitKeepsEndpointAndPlanarFallbackUsesTheCapturedFace() {
-        FaceSelection selection = new FaceSelection(ANCHOR, FaceSelection.Face.UP, 10.5);
-        selection.followSurface(new SelectionState.Cell(-7, -40, 8));
-        assertEquals(new SelectionState.Cell(-7, 10, 8), selection.endpoint());
-
-        assertThrows(NullPointerException.class, () -> selection.followSurface(null));
-        assertEquals(new SelectionState.Cell(-7, 10, 8), selection.endpoint());
-        assertTrue(selection.update(new CursorRay.Point(1.5, 20, -6.5), new CursorRay.Point(0, -1, 0)));
-        assertEquals(new SelectionState.Cell(1, 10, -7), selection.endpoint());
-        assertEquals(10.5, selection.planeCoordinate());
-    }
-
-    @Test
     void parallelAndBehindRaysRetainTheLastValidEndpoint() {
         FaceSelection selection = new FaceSelection(ANCHOR, FaceSelection.Face.UP, 11);
         assertTrue(selection.update(new CursorRay.Point(6.5, 20, -1.5), new CursorRay.Point(0, -1, 0)));

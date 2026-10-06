@@ -10,9 +10,9 @@ import java.util.Set;
 /** Partitions full selected blocks into boxes without filling unselected gaps. */
 public final class SelectionBoxes {
     private static final Comparator<SelectionState.Cell> ORDER = Comparator
-            .comparingInt(SelectionState.Cell::y)
-            .thenComparingInt(SelectionState.Cell::z)
-            .thenComparingInt(SelectionState.Cell::x);
+            .comparingInt((SelectionState.Cell cell) -> cell.y())
+            .thenComparingInt(cell -> cell.z())
+            .thenComparingInt(cell -> cell.x());
 
     private SelectionBoxes() {}
 

@@ -1,0 +1,21 @@
+{
+  "pattern": [
+    "III",
+    "ICI",
+    "III"
+  ],
+  "result": {
+    "item": "colonycamera:warehouse",
+    "count": 1
+  },
+  "category": "misc",
+  "type": "minecraft:crafting_shaped",
+  "key": {
+    "C": {
+      "item": "minecraft:chest"
+    },
+    "I": {
+      "item": "minecraft:iron_ingot"
+    }
+  }
+}

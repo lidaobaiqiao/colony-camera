@@ -1,0 +1,10 @@
+{
+  "java.compile.nullAnalysis.mode": "automatic",
+  "java.compile.nullAnalysis.nonnull": ["javax.annotation.Nonnull"],
+  "java.compile.nullAnalysis.nullable": ["javax.annotation.Nullable"],
+  "java.compile.nullAnalysis.nonnullbydefault": ["javax.annotation.ParametersAreNonnullByDefault"],
+  "java.project.resourceFilters": ["node_modules", "\\.git"],
+  "files.exclude": {
+    "work": true
+  }
+}

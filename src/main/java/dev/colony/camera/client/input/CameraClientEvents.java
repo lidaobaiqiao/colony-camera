@@ -3,6 +3,8 @@ package dev.colony.camera.client.input;
 import dev.colony.camera.ColonyCamera;
 import dev.colony.camera.client.camera.StrategyCameraController;
 import dev.colony.camera.client.screen.StrategyScreen;
+import dev.colony.camera.client.planning.ProjectionController;
+import dev.colony.camera.client.planning.ProjectionRenderer;
 import net.minecraft.client.Minecraft;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.RenderBlockScreenEffectEvent;
@@ -18,6 +20,7 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
 import java.util.EnumSet;
+import java.util.Objects;
 
 /** Forge event adapter; gameplay and state belong to feature controllers. */
 @Mod.EventBusSubscriber(modid = ColonyCamera.ID, value = Dist.CLIENT)
@@ -36,6 +39,7 @@ public final class CameraClientEvents {
     public static void tick(TickEvent.ClientTickEvent event) {
         if (event.phase == TickEvent.Phase.END) {
             StrategyCameraController.instance().tick(Minecraft.getInstance());
+            ProjectionController.instance().tick(Objects.requireNonNull(Minecraft.getInstance()));
         }
     }
 
@@ -54,12 +58,17 @@ public final class CameraClientEvents {
     @SubscribeEvent
     public static void selection(RenderLevelStageEvent event) {
         StrategyCameraController controller = StrategyCameraController.instance();
-        if (controller.isActive() && event.getStage() == RenderLevelStageEvent.Stage.AFTER_BLOCK_ENTITIES) {
+        if (event.getStage() == RenderLevelStageEvent.Stage.AFTER_BLOCK_ENTITIES) {
             Minecraft mc = Minecraft.getInstance();
             double x = mc.mouseHandler.xpos() * mc.getWindow().getGuiScaledWidth() / mc.getWindow().getScreenWidth();
             double y = mc.mouseHandler.ypos() * mc.getWindow().getGuiScaledHeight() / mc.getWindow().getScreenHeight();
             boolean blocked = mc.screen instanceof StrategyScreen screen && screen.blocksWorldPointer(x, y);
-            controller.selection().render(mc, event, blocked);
+            if (controller.isActive()) {
+                controller.selection().render(mc, event, blocked || ProjectionController.instance().draft() != null);
+                ProjectionController.instance().followPointer(x / Math.max(1, mc.getWindow().getGuiScaledWidth()),
+                        y / Math.max(1, mc.getWindow().getGuiScaledHeight()), blocked);
+            }
+            ProjectionRenderer.render(Objects.requireNonNull(mc), event);
         }
     }
 

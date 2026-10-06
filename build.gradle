@@ -12,6 +12,13 @@ group = mod_group_id
 base { archivesName = mod_id }
 java.toolchain.languageVersion = JavaLanguageVersion.of(17)
 
+sourceSets {
+    gameTest {
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += output + compileClasspath + sourceSets.main.runtimeClasspath
+    }
+}
+
 minecraft {
     mappings channel: mapping_channel, version: mapping_version
     accessTransformer = file('src/main/resources/META-INF/accesstransformer.cfg')
@@ -25,8 +32,14 @@ minecraft {
             }
         }
         client {}
-        // Reserved for the future server-authoritative construction feature.
+        // Worker execution and persistent projects are server-authoritative.
         server { args '--nogui' }
+        gameTestServer {
+            workingDirectory project.file('build/game-test-run')
+            args '--world', providers.gradleProperty('gameTestWorld').getOrElse('world-' + System.currentTimeMillis())
+            property 'forge.enabledGameTestNamespaces', mod_id
+            mods { "${mod_id}" { source sourceSets.gameTest } }
+        }
         data {
             workingDirectory project.file('run-data')
             args '--mod', mod_id, '--all', '--output', file('src/generated/resources/'),
@@ -79,6 +92,17 @@ tasks.named('jar', Jar).configure {
 
 tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
 
+tasks.register('exportNullAnalysisClasspath') {
+    description = 'Exports main, JUnit and GameTest dependencies for the optional ECJ null analysis.'
+    group = 'verification'
+    doLast {
+        def output = layout.buildDirectory.file('null-analysis/compile.classpath').get().asFile
+        output.parentFile.mkdirs()
+        // Only dependencies; the null checker compiles fresh project binaries separately.
+        output.setText((sourceSets.main.compileClasspath + configurations.testCompileClasspath + configurations.gameTestCompileClasspath).asPath, 'UTF-8')
+    }
+}
+
 tasks.register('verifyArchitecture') {
     group = 'verification'
     description = 'Checks side separation, mod identity and resource consistency.'
@@ -107,7 +131,7 @@ tasks.register('verifyArchitecture') {
         if (cameraState =~ /(?m)^import\s+(net\.|org\.lwjgl\.|com\.mojang\.|dev\.colony\.)/) {
             throw new GradleException('CameraState must remain independent of game APIs')
         }
-        ['SelectionState', 'SelectionBoxes', 'FaceSelection', 'SurfaceSelectionJob', 'HeightSelection'].each { model ->
+        ['SelectionState', 'SelectionBoxes', 'FaceSelection', 'SimilarSelectionJob', 'HeightSelection'].each { model ->
             def text = file("src/main/java/dev/colony/camera/client/selection/${model}.java").getText('UTF-8')
             if (text =~ /(?m)^import\s+(net\.|org\.|com\.)/) {
                 throw new GradleException("${model} must remain independent of game APIs")
@@ -116,6 +140,12 @@ tasks.register('verifyArchitecture') {
         def hudLayout = file('src/main/java/dev/colony/camera/client/screen/StrategyHudLayout.java').getText('UTF-8')
         if (hudLayout =~ /(?m)^import\s+(net\.|org\.|com\.)/) {
             throw new GradleException('StrategyHudLayout must remain independent of game APIs')
+        }
+        ['preset/BlockPreset', 'planning/ProjectionPlacement', 'client/screen/ProjectionPanelLayout', 'client/work/WorkPanelLayout', 'worker/MiningSkill', 'resources/ReservationLedger', 'construction/ProjectOrder', 'network/ConstructionPayload'].each { model ->
+            def text = file("src/main/java/dev/colony/camera/${model}.java").getText('UTF-8')
+            if (text =~ /(?m)^import\s+(net\.|org\.|com\.)/) {
+                throw new GradleException("${model} must remain independent of game APIs")
+            }
         }
         def parser = new JsonSlurper()
         def english = parser.parse(file("src/main/resources/assets/${mod_id}/lang/en_us.json"), 'UTF-8')
@@ -145,17 +175,66 @@ tasks.register('verifyModJar') {
                     'dev/colony/camera/client/screen/StrategyScreen.class',
                     'dev/colony/camera/client/screen/StrategyHud.class',
                     'dev/colony/camera/client/screen/StrategyHudLayout.class',
+                    'dev/colony/camera/client/screen/ProjectionPanel.class',
+                    'dev/colony/camera/client/screen/ProjectionPanelLayout.class',
+                    'dev/colony/camera/client/preset/MinecraftPresetAdapter.class',
+                    'dev/colony/camera/client/planning/ProjectionController.class',
+                    'dev/colony/camera/client/planning/ProjectionRenderer.class',
+                    'dev/colony/camera/preset/BlockPreset.class',
+                    'dev/colony/camera/preset/BlockStateResolver.class',
+                    'dev/colony/camera/construction/BuildPlan.class',
+                    'dev/colony/camera/construction/ConstructionManager.class',
+                    'dev/colony/camera/construction/ConstructionEvents.class',
+                    'dev/colony/camera/construction/ProjectOrder.class',
+                    'dev/colony/camera/resources/GroundResources.class',
+                    'dev/colony/camera/resources/ReservationLedger.class',
+                    'dev/colony/camera/network/ConstructionNetwork.class',
+                    'dev/colony/camera/network/ConstructionPayload.class',
+                    'dev/colony/camera/worker/WorkerEntity.class',
+                    'dev/colony/camera/worker/LoadedGroundNavigation.class',
+                    'dev/colony/camera/worker/ColonyEntities.class',
+                    'dev/colony/camera/client/construction/ConstructionClient.class',
+                    'dev/colony/camera/client/construction/WorkerRenderer.class',
+                    'dev/colony/camera/preset/PresetCodec.class',
+                    'dev/colony/camera/preset/PresetRepository.class',
+                    'dev/colony/camera/planning/ProjectionPlacement.class',
+                    'dev/colony/camera/planning/ProjectionCodec.class',
+                    'dev/colony/camera/planning/ProjectionRepository.class',
                     'dev/colony/camera/client/selection/CursorRay.class',
                     'dev/colony/camera/client/selection/BlockSelectionController.class',
                     'dev/colony/camera/client/selection/SelectionState.class',
                     'dev/colony/camera/client/selection/SelectionBoxes.class',
                     'dev/colony/camera/client/selection/FaceSelection.class',
-                    'dev/colony/camera/client/selection/SurfaceSelectionJob.class',
+                    'dev/colony/camera/client/selection/SimilarSelectionJob.class',
                     'dev/colony/camera/client/selection/HeightSelection.class',
                     "assets/${mod_id}/lang/en_us.json", "assets/${mod_id}/lang/zh_cn.json"
             ]
+            ['content/ColonyContent', 'content/MachineBlock', 'content/MachineBlockItem', 'content/MachineBlockEntity',
+             'content/PrintingCores', 'content/ChestConversion', 'content/WarehouseUpgradeItem', 'storage/WarehouseInventory',
+             'storage/StorageMenu', 'storage/StorageAccess', 'storage/StorageNetwork', 'storage/NetworkItemHandler',
+             'resources/StorageResources', 'client/storage/StorageScreen', 'work/ColonyJob', 'work/WorkTask', 'work/WorkPaths',
+             'work/ColonyWorkManager', 'work/WorkNetwork', 'work/WorkStations', 'work/MiningService', 'work/SweepService',
+             'worker/MiningSkill', 'crafting/CraftingService', 'tech/TechProgress', 'client/work/ColonyWorkClient',
+             'client/work/ColonyWorkScreen', 'client/work/WorkPanel', 'client/work/WorkPanelLayout'].each { type ->
+                required.add("dev/colony/camera/${type}.class")
+            }
+            ['printing_core', 'warehouse', 'network_controller', 'network_port', 'network_cable', 'colony_workbench', 'research_desk'].each { block ->
+                required.addAll(["assets/${mod_id}/blockstates/${block}.json", "assets/${mod_id}/models/block/${block}.json",
+                                 "assets/${mod_id}/models/item/${block}.json", "data/${mod_id}/loot_tables/blocks/${block}.json",
+                                 "data/${mod_id}/recipes/${block}.json"])
+            }
+            ['capacity_upgrade', 'stack_upgrade'].each { item ->
+                required.addAll(["assets/${mod_id}/models/item/${item}.json", "data/${mod_id}/recipes/${item}.json"])
+            }
+            ['printing_core', 'warehouse', 'network_controller', 'network_port', 'network_cable',
+             'colony_workbench', 'research_desk', 'capacity_upgrade', 'stack_upgrade'].each { item ->
+                required.add("data/${mod_id}/advancements/recipes/misc/${item}.json")
+            }
             required.each { path ->
                 if (zip.getEntry(path) == null) throw new GradleException("Missing JAR entry: ${path}")
+                if (path.endsWith('.json')) {
+                    zip.getInputStream(zip.getEntry(path)).withCloseable { new JsonSlurper().parse(it, 'UTF-8') }
+                }
             }
             def readEntry = { path -> zip.getInputStream(zip.getEntry(path)).withCloseable { it.getText('UTF-8') } }
             def metadata = readEntry('META-INF/mods.toml')
@@ -175,6 +254,12 @@ tasks.register('verifyModJar') {
             }
             if (zip.getEntry('dev/colony/camera/client/selection/MarqueeSelectionJob.class') != null) {
                 throw new GradleException('Obsolete screen sampling remains in the release JAR')
+            }
+            if (metadata.contains('clientSideOnly=true') || !metadata.contains('side="BOTH"')) {
+                throw new GradleException('Construction requires both execution sides')
+            }
+            if (zip.entries().toList().any { it.name.endsWith('GameTests.class') } || zip.getEntry('data/colonycamera/structures/construction.nbt') != null) {
+                throw new GradleException('GameTest fixtures must not ship in the release JAR')
             }
         }
     }

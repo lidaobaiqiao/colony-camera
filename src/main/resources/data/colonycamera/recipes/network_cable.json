@@ -1,0 +1,19 @@
+{
+  "pattern": [
+    "IRI"
+  ],
+  "result": {
+    "item": "colonycamera:network_cable",
+    "count": 8
+  },
+  "category": "misc",
+  "type": "minecraft:crafting_shaped",
+  "key": {
+    "R": {
+      "item": "minecraft:redstone"
+    },
+    "I": {
+      "item": "minecraft:copper_ingot"
+    }
+  }
+}

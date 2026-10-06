@@ -1,8 +1,7 @@
 modLoader="javafml"
 loaderVersion="${loader_version_range}"
 license="${mod_license}"
-# Camera milestone is client-only. Revisit when adding server-owned world changes.
-clientSideOnly=true
+# Construction and workers require this mod on both client and server.
 
 [[mods]]
 modId="${mod_id}"
@@ -16,11 +15,11 @@ modId="forge"
 mandatory=true
 versionRange="${forge_version_range}"
 ordering="NONE"
-side="CLIENT"
+side="BOTH"
 
 [[dependencies.${mod_id}]]
 modId="minecraft"
 mandatory=true
 versionRange="${minecraft_version_range}"
 ordering="NONE"
-side="CLIENT"
+side="BOTH"

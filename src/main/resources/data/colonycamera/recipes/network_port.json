@@ -1,0 +1,24 @@
+{
+  "pattern": [
+    "III",
+    "RHR",
+    "III"
+  ],
+  "result": {
+    "item": "colonycamera:network_port",
+    "count": 1
+  },
+  "category": "misc",
+  "type": "minecraft:crafting_shaped",
+  "key": {
+    "H": {
+      "item": "minecraft:hopper"
+    },
+    "R": {
+      "item": "minecraft:redstone"
+    },
+    "I": {
+      "item": "minecraft:iron_ingot"
+    }
+  }
+}

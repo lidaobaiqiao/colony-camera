@@ -1,0 +1,9 @@
+{
+  "textures": {
+    "side": "minecraft:block/polished_deepslate",
+    "bottom": "minecraft:block/polished_deepslate",
+    "top": "minecraft:block/polished_deepslate",
+    "front": "minecraft:block/lapis_block"
+  },
+  "parent": "minecraft:block/orientable"
+}

@@ -71,7 +71,8 @@ public final class ProjectionRenderer {
             scanned = draft; scannedLevel = level; scanIndex = missing = matching = conflicting = unavailable = 0;
         }
         if (draft != null) scan(level, draft);
-        var placements = controller.placements();
+        var placements = new ArrayList<>(controller.placements());
+        placements.addAll(dev.colony.camera.client.construction.ConstructionClient.palettePlans());
         if (placements.isEmpty() && draft == null) return;
         RenderType type = Objects.requireNonNull(RenderType.entityTranslucent(Objects.requireNonNull(InventoryMenu.BLOCK_ATLAS)));
         VertexConsumer models = Objects.requireNonNull(MODEL_BUFFERS.getBuffer(type));

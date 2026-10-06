@@ -7,7 +7,7 @@ import javax.annotation.Nullable;
 
 /** Shared drawing/hit geometry in scaled GUI pixels, independent of game APIs. */
 public final class StrategyHudLayout {
-    public enum Action { SIMILAR, VOLUME, ADDITIVE, CLEAR, SAVE_PRESET, LIBRARY, WORK, SIMILAR_LIMIT, ANGLE_LOCK, HELP, EXIT }
+    public enum Action { SIMILAR, VOLUME, ADDITIVE, CLEAR, SAVE_PRESET, LIBRARY, WORK, SIMILAR_LIMIT, BUILD, ANGLE_LOCK, HELP, EXIT }
 
     public record Rect(int x, int y, int width, int height) {
         public int right() { return x + width; }
@@ -67,14 +67,15 @@ public final class StrategyHudLayout {
                 tool(Action.SAVE_PRESET, 4, available, inset), tool(Action.LIBRARY, 5, available, inset),
                 tool(Action.WORK, 6, available, inset),
                 tool(Action.SIMILAR_LIMIT, 7, available, inset),
+                tool(Action.BUILD, 8, available, inset),
                 new Control(Action.ANGLE_LOCK, new Rect(rightStart, margin, buttonSize, Math.min(buttonSize, height - margin))),
                 new Control(Action.HELP, new Rect(rightStart + buttonSize + buttonGap, margin, buttonSize, Math.min(buttonSize, height - margin))),
                 new Control(Action.EXIT, new Rect(rightStart + 2 * (buttonSize + buttonGap), margin, buttonSize, Math.min(buttonSize, height - margin))));
     }
 
     private Control tool(Action action, int index, int available, int inset) {
-        int left = dock.x() + inset + available * index / 8;
-        int right = dock.x() + inset + available * (index + 1) / 8;
+        int left = dock.x() + inset + available * index / 9;
+        int right = dock.x() + inset + available * (index + 1) / 9;
         return new Control(action, new Rect(left, dock.y() + inset, right - left,
                 Math.max(0, dock.height() - 2 * inset)));
     }

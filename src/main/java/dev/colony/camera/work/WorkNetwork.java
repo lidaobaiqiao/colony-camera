@@ -69,7 +69,7 @@ public final class WorkNetwork {
                 case "sweep" -> manager.sweep(player, Objects.requireNonNull(BlockPos.of(data.get("min").getAsLong())), Objects.requireNonNull(BlockPos.of(data.get("max").getAsLong())));
                 case "craft" -> manager.craft(player, Objects.requireNonNull(BlockPos.of(data.get("station").getAsLong())), Objects.requireNonNull(data.get("recipe").getAsString()), data.get("count").getAsInt());
                 case "research" -> manager.research(player, Objects.requireNonNull(BlockPos.of(data.get("station").getAsLong())));
-                case "priority", "pause", "cancel", "remove" -> { manager.update(Objects.requireNonNull(player.getUUID()), Objects.requireNonNull(UUID.fromString(data.get("id").getAsString())), request.action(), data.has("value") ? data.get("value").getAsInt() : 0); notice = "colonycamera.work.notice.updated"; }
+                case "priority", "pause", "cancel", "remove" -> { manager.control(Objects.requireNonNull(player.serverLevel()), Objects.requireNonNull(player.getUUID()), Objects.requireNonNull(UUID.fromString(data.get("id").getAsString())), request.action(), data.has("value") ? data.get("value").getAsInt() : 0); notice = "colonycamera.work.notice.updated"; }
                 case "list" -> notice = "";
                 default -> throw new IllegalArgumentException("invalid");
             }

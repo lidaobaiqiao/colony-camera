@@ -4,6 +4,7 @@ import com.google.gson.JsonParser;
 import dev.colony.camera.ColonyCamera;
 import dev.colony.camera.construction.ConstructionManager;
 import dev.colony.camera.planning.ProjectionCodec;
+import dev.colony.camera.planning.ProjectionPlacement;
 import dev.colony.camera.worker.WorkerEntity;
 import dev.colony.camera.content.PrintingCores;
 import net.minecraft.core.BlockPos;
@@ -18,6 +19,7 @@ import net.minecraftforge.network.NetworkRegistry;
 import net.minecraftforge.network.PacketDistributor;
 import net.minecraftforge.network.simple.SimpleChannel;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import javax.annotation.ParametersAreNonnullByDefault;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,12 +31,12 @@ public final class ConstructionNetwork {
     public static final int MAX_JSON = ConstructionPayload.MAX_JSON;
     @Nonnull public static final UUID NONE = new UUID(0, 0);
     @Nonnull public static final SimpleChannel CHANNEL = Objects.requireNonNull(NetworkRegistry.newSimpleChannel(
-            Objects.requireNonNull(ResourceLocation.tryParse(ColonyCamera.ID + ":construction")), () -> "2", "2"::equals, "2"::equals));
+            Objects.requireNonNull(ResourceLocation.tryParse(ColonyCamera.ID + ":construction")), () -> "3", "3"::equals, "3"::equals));
     private ConstructionNetwork() {}
     public record Request(@Nonnull String action, @Nonnull UUID id, int value, @Nonnull String payload) {}
     public record View(@Nonnull UUID id, @Nonnull String name, int x, int y, int z, int priority, int completed, int total,
                        int workers, int ground, int reserved, @Nonnull String neededItem, int neededCount,
-                       @Nonnull String reason, boolean paused, boolean cancelled, long sequence) {}
+                       @Nonnull String reason, boolean paused, boolean cancelled, long sequence, @Nullable ProjectionPlacement palettePlan) {}
     public record Snapshot(@Nonnull String dimension, @Nonnull List<View> projects, int workers, @Nonnull List<BlockPos> cores, @Nonnull Component notice) {
         public Snapshot { projects = Objects.requireNonNull(List.copyOf(projects)); cores = Objects.requireNonNull(List.copyOf(cores)); }
     }
@@ -93,7 +95,7 @@ public final class ConstructionNetwork {
         List<View> views = manager.projects(Objects.requireNonNull(player.getUUID())).stream().map(project -> new View(project.id(), project.placement.preset().name(),
                 project.placement.x(), project.placement.y(), project.placement.z(), project.priority, project.completedBlocks(), project.placement.preset().blocks().size(),
                 project.activeWorkers, project.groundKnown, project.reserved, project.neededItem, project.neededCount,
-                project.reason, project.paused, project.cancelled, project.sequence)).toList();
+                project.reason, project.paused, project.cancelled, project.sequence, project.palette ? project.placement : null)).toList();
         CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), new Snapshot(player.serverLevel().dimension().location().toString(), Objects.requireNonNull(views),
                 (int) workers.stream().filter(worker -> player.getUUID().equals(worker.owner())).count(),
                 Objects.requireNonNull(PrintingCores.owned(Objects.requireNonNull(player.serverLevel()), Objects.requireNonNull(player.getUUID())).stream().limit(256).toList()), notice));
@@ -108,6 +110,8 @@ public final class ConstructionNetwork {
             buf.writeInt(view.completed()); buf.writeInt(view.total()); buf.writeInt(view.workers()); buf.writeInt(view.ground()); buf.writeInt(view.reserved());
             buf.writeUtf(view.neededItem(), 256); buf.writeInt(view.neededCount());
             buf.writeUtf(view.reason(), 32); buf.writeBoolean(view.paused()); buf.writeBoolean(view.cancelled()); buf.writeLong(view.sequence());
+            ProjectionPlacement plan = view.palettePlan(); buf.writeBoolean(plan != null);
+            if (plan != null) buf.writeUtf(Objects.requireNonNull(ProjectionCodec.encode(plan).toString()), 4096);
         }
     }
     @Nonnull private static Snapshot decodeSnapshot(FriendlyByteBuf buf) {
@@ -121,7 +125,8 @@ public final class ConstructionNetwork {
         for (int i = 0; i < count; i++) views.add(new View(Objects.requireNonNull(buf.readUUID()), Objects.requireNonNull(buf.readUtf(48)),
                 buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt(),
                 Objects.requireNonNull(buf.readUtf(256)), buf.readInt(),
-                Objects.requireNonNull(buf.readUtf(32)), buf.readBoolean(), buf.readBoolean(), buf.readLong()));
+                Objects.requireNonNull(buf.readUtf(32)), buf.readBoolean(), buf.readBoolean(), buf.readLong(),
+                buf.readBoolean() ? ProjectionCodec.decode(Objects.requireNonNull(JsonParser.parseString(buf.readUtf(4096)).getAsJsonObject())) : null));
         return new Snapshot(dimension, views, workers, cores, notice);
     }
 }

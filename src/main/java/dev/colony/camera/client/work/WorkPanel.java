@@ -135,6 +135,7 @@ public final class WorkPanel {
         List<Component> details = new ArrayList<>(); var job = chosenJob();
         if (job != null) {
             details.add(text("reason." + job.reason()));
+            if (job.supply()) details.add(text("supply_controls"));
         }
         details.add(text("workers", ColonyWorkClient.workers().size()));
         for (var worker : ColonyWorkClient.workers()) details.add(text("worker", worker.miningLevel(), worker.xp(), itemName(worker.tool())));
@@ -348,6 +349,7 @@ public final class WorkPanel {
     }
     @Nonnull private static Component jobTitle(ColonyWorkClient.Job job) {
         Component name = job.name().isBlank() ? text("kind." + job.kind().toLowerCase(java.util.Locale.ROOT)) : ColonyWorkClient.text(job.name());
+        if (job.supply()) name = text("supply_title", name);
         var origin = job.origin();
         return origin == null ? name : text("job_position", name, origin.getX(), origin.getY(), origin.getZ());
     }

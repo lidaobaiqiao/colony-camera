@@ -28,7 +28,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
-/** Local design projections only. No block writes, inventory changes or server orders. */
+/** Local designs and placement drafts; block drafts submit server intentions through BuildingClient. */
 @ParametersAreNonnullByDefault
 public final class ProjectionController {
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -40,6 +40,7 @@ public final class ProjectionController {
     @Nullable private PresetRepository presetFiles;
     @Nullable private ProjectionRepository projectionFiles;
     @Nullable private ProjectionPlacement draft;
+    @Nullable private String blockItem;
     private boolean following;
     private boolean cursorValid;
     private int heightOffset;
@@ -52,6 +53,8 @@ public final class ProjectionController {
     @Nonnull public List<BlockPreset> presets() { return presets; }
     @Nonnull public List<ProjectionPlacement> placements() { return Objects.requireNonNull(List.copyOf(placements)); }
     @Nullable public ProjectionPlacement draft() { return draft; }
+    public boolean blockDraft() { return blockItem != null && draft != null; }
+    @Nullable public String blockItem() { return blockItem; }
     public boolean following() { return following; }
     public int revision() { return revision; }
     @Nonnull public Component status() { return status; }
@@ -63,6 +66,7 @@ public final class ProjectionController {
         level = null;
         placements.clear();
         draft = null;
+        blockItem = null;
         projectionFiles = null;
         revision++;
         ProjectionRenderer.invalidate();
@@ -151,11 +155,25 @@ public final class ProjectionController {
     }
 
     public boolean edit(ProjectionPlacement placement) { return begin(placement.visibility(true), false); }
+    public boolean startBlock(net.minecraft.world.item.Item item) {
+        try {
+            if (!start(dev.colony.camera.construction.BlockBuilding.design(item))) return false;
+            blockItem = Objects.requireNonNull(net.minecraftforge.registries.ForgeRegistries.ITEMS.getKey(item)).toString();
+            status = Objects.requireNonNull(Component.translatable("screen.colonycamera.build.draft_hint")); statusTime = System.nanoTime();
+            return true;
+        } catch (RuntimeException failure) { message("unsupported"); return false; }
+    }
+    public void placedBlock(UUID id) {
+        ProjectionPlacement current = draft; if (current == null || blockItem == null || !current.id().equals(id)) return;
+        draft = new ProjectionPlacement(Objects.requireNonNull(UUID.randomUUID()), current.preset(), current.x(), current.y(), current.z(), current.quarterTurns(), false, true);
+        following = true; cursorValid = false; revision++;
+    }
 
     private boolean begin(ProjectionPlacement placement, boolean follow) {
         try { validateStates(Objects.requireNonNull(placement)); }
         catch (RuntimeException failure) { message("unsupported"); return false; }
         draft = placement;
+        blockItem = null;
         following = follow;
         cursorValid = !follow;
         heightOffset = 0;
@@ -167,7 +185,8 @@ public final class ProjectionController {
 
     public void followPointer(double x, double y, boolean blocked) {
         ProjectionPlacement current = draft;
-        if (current == null || !following || blocked || !Minecraft.getInstance().isWindowActive()) return;
+        if (current == null || !following || blocked || !Minecraft.getInstance().isWindowActive()
+                || blockDraft() && dev.colony.camera.client.construction.BuildingClient.pending()) return;
         BlockHitResult hit = StrategyCameraController.instance().selection().hitAt(x, y);
         cursorValid = hit != null;
         if (hit == null) return;
@@ -185,7 +204,7 @@ public final class ProjectionController {
 
     public void follow() { if (draft != null) { following = true; cursorValid = false; heightOffset = 0; message("follow_hint"); } }
     public void rotate() { ProjectionPlacement current = draft; if (current != null) { draft = current.rotated(); revision++; } }
-    public void mirror() { ProjectionPlacement current = draft; if (current != null) { draft = current.mirror(); revision++; } }
+    public void mirror() { ProjectionPlacement current = draft; if (current != null && !blockDraft()) { draft = current.mirror(); revision++; } }
     public void move(int dx, int dy, int dz) {
         ProjectionPlacement current = draft;
         if (current == null) return;
@@ -203,6 +222,8 @@ public final class ProjectionController {
         ClientLevel world = level;
         if (current == null || repository == null || world == null) return false;
         if (following && !cursorValid) { message("no_target"); return false; }
+        String buildingItem = blockItem;
+        if (buildingItem != null) return dev.colony.camera.client.construction.BuildingClient.place(buildingItem, current);
         boolean editing = placements.stream().anyMatch(item -> item.id().equals(current.id()));
         if ((!editing && placements.size() >= ProjectionRepository.MAX_PLACEMENTS)
                 || blockCountWithout(current.id()) + current.preset().blocks().size() > MAX_TOTAL_BLOCKS) {
@@ -227,7 +248,7 @@ public final class ProjectionController {
         } catch (IOException failure) { ioFailure(failure); return false; }
     }
 
-    public void cancel() { if (draft != null) { draft = null; revision++; message("cancelled"); } }
+    public void cancel() { if (draft != null) { draft = null; blockItem = null; revision++; message("cancelled"); } }
 
     public void toggleVisible(ProjectionPlacement placement) {
         ProjectionRepository repository = projectionFiles;

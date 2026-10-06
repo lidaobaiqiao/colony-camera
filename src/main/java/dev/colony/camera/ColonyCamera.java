@@ -17,6 +17,7 @@ public final class ColonyCamera {
         ColonyEntities.TYPES.register(FMLJavaModLoadingContext.get().getModEventBus());
         ColonyContent.register(java.util.Objects.requireNonNull(FMLJavaModLoadingContext.get().getModEventBus()));
         ConstructionNetwork.register();
+        dev.colony.camera.network.BuildNetwork.register();
         dev.colony.camera.work.WorkNetwork.register();
     }
 }

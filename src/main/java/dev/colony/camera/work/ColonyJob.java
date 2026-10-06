@@ -23,6 +23,7 @@ public final class ColonyJob {
     @Nonnull public List<BlockPos> targets = java.util.Objects.requireNonNull(List.of());
     @Nonnull public List<String> expectedStates = java.util.Objects.requireNonNull(List.of());
     @Nullable public BlockPos station;
+    @Nullable public UUID parentProject;
     @Nonnull public String recipe = "";
     public int requested = 1;
     @Nonnull public final BitSet completed = new BitSet();

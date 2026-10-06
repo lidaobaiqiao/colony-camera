@@ -18,6 +18,7 @@ public final class ConstructionProject {
     public int priority;
     public boolean paused;
     public boolean cancelled;
+    public boolean palette;
     public int cursor;
     @Nonnull public String reason = "queued";
     public int activeWorkers;

@@ -171,6 +171,7 @@ public final class ConstructionManager extends SavedData {
         if (rejectedData != null) return;
         long time = level.getGameTime();
         ColonyWorkManager work = ColonyWorkManager.get(level);
+        work.synchronizeSupplies(this);
         if (time % 5 != 0) { work.tick(level, lastWorkers, ledger); return; }
         List<WorkerEntity> workers = workers(level);
         lastWorkers = workers;
@@ -476,10 +477,12 @@ public final class ConstructionManager extends SavedData {
     }
     private boolean usePathBudget() { if (pathBudget <= 0) return false; pathBudget--; return true; }
     public boolean readOnly() { return rejectedData != null; }
+    @Nonnull public ReservationLedger reservations() { return ledger; }
+    @Nullable public ConstructionProject project(UUID id) { return projects.get(id); }
     @Override @Nonnull public CompoundTag save(CompoundTag root) {
         CompoundTag rejected = rejectedData;
         if (rejected != null) return Objects.requireNonNull(rejected.copy());
-        root.putInt("schemaVersion", 1); root.putLong("nextSequence", nextSequence);
+        root.putInt("schemaVersion", 2); root.putLong("nextSequence", nextSequence);
         ListTag list = new ListTag();
         for (var project : projects.values()) {
             CompoundTag entry = new CompoundTag();
@@ -487,6 +490,7 @@ public final class ConstructionManager extends SavedData {
             entry.putUUID("owner", project.owner); entry.putString("ownerName", project.ownerName);
             entry.putInt("priority", project.priority); entry.putLong("sequence", project.sequence);
             entry.putBoolean("paused", project.paused); entry.putBoolean("cancelled", project.cancelled);
+            entry.putBoolean("palette", project.palette);
             entry.putLongArray("completed", Objects.requireNonNull(project.completed.toLongArray())); list.add(entry);
         }
         root.put("projects", list); return root;
@@ -494,7 +498,7 @@ public final class ConstructionManager extends SavedData {
     @Nonnull public static ConstructionManager load(CompoundTag root) {
         ConstructionManager manager = new ConstructionManager();
         try {
-            if (root.getInt("schemaVersion") != 1) throw new IllegalArgumentException("Unsupported construction data version");
+            if (root.getInt("schemaVersion") != 1 && root.getInt("schemaVersion") != 2) throw new IllegalArgumentException("Unsupported construction data version");
             if (!root.contains("projects", Tag.TAG_LIST) || !root.contains("nextSequence", Tag.TAG_LONG) || root.getLong("nextSequence") < 0) {
                 throw new IllegalArgumentException("Invalid construction data header");
             }
@@ -511,6 +515,9 @@ public final class ConstructionManager extends SavedData {
                         JsonParser.parseString(entry.getString("placement")).getAsJsonObject())), Objects.requireNonNull(entry.getUUID("owner")),
                         Objects.requireNonNull(entry.getString("ownerName")), entry.getInt("priority"), entry.getLong("sequence"));
                 project.paused = entry.getBoolean("paused"); project.cancelled = entry.getBoolean("cancelled");
+                project.palette = root.getInt("schemaVersion") >= 2 && entry.getBoolean("palette");
+                if (root.getInt("schemaVersion") >= 2 && entry.contains("palette") && !entry.contains("palette", Tag.TAG_BYTE)
+                        || project.palette && project.placement.preset().blocks().size() > 2) throw new IllegalArgumentException("Invalid palette project data");
                 project.completed.or(java.util.BitSet.valueOf(entry.getLongArray("completed")));
                 if (project.completed.length() > project.plan.units().size() || manager.projects.put(project.id(), project) != null) {
                     throw new IllegalArgumentException("Invalid construction progress");

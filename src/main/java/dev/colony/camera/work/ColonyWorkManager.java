@@ -3,6 +3,7 @@ package dev.colony.camera.work;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import dev.colony.camera.construction.ConstructionManager;
+import dev.colony.camera.construction.ConstructionProject;
 import dev.colony.camera.construction.ProjectOrder;
 import dev.colony.camera.content.ColonyContent;
 import dev.colony.camera.content.MachineBlockEntity;
@@ -106,6 +107,23 @@ public final class ColonyWorkManager extends SavedData {
         if (tier >= 3 || jobs(Objects.requireNonNull(player.getUUID())).stream().anyMatch(job -> job.kind == ColonyJob.Kind.RESEARCH && !job.cancelled && !job.finished())) throw new IllegalArgumentException("research");
         ColonyJob job = begin(player, ColonyJob.Kind.RESEARCH); job.station = station; job.recipe = Objects.requireNonNull(String.valueOf(tier + 1)); add(job);
     }
+    /** The caller validates both intents before adding either one. Supply shares its parent's FIFO position. */
+    public void supply(ConstructionProject parent, BlockPos station, String recipe) {
+        ColonyJob job = new ColonyJob(Objects.requireNonNull(UUID.randomUUID()), parent.owner, parent.ownerName, ColonyJob.Kind.CRAFT, parent.priority, parent.sequence);
+        job.station = station; job.recipe = recipe; job.parentProject = parent.id(); add(job);
+    }
+    public void synchronizeSupplies(ConstructionManager construction) {
+        for (ColonyJob job : jobs.values()) {
+            UUID parentId = job.parentProject; if (parentId == null || job.finished() || job.cancelled) continue;
+            ConstructionProject parent = construction.project(parentId);
+            boolean cancelled = parent == null || !parent.owner.equals(job.owner) || parent.cancelled || parent.finished();
+            boolean paused = parent != null && parent.paused;
+            int priority = parent == null ? job.priority : parent.priority;
+            if (job.cancelled != cancelled || job.paused != paused || job.priority != priority) {
+                job.cancelled = cancelled; job.paused = paused; job.priority = priority; redispatch();
+            }
+        }
+    }
     public static void station(ServerPlayer player, BlockPos pos, boolean research) {
         location(player, pos, Objects.requireNonNull(PrintingCores.owned(Objects.requireNonNull(player.serverLevel()), Objects.requireNonNull(player.getUUID()))));
         if (!(player.serverLevel().getBlockEntity(pos) instanceof MachineBlockEntity machine) || !machine.permits(player.getUUID())
@@ -122,6 +140,15 @@ public final class ColonyWorkManager extends SavedData {
             default -> throw new IllegalArgumentException("invalid");
         }
         redispatch();
+    }
+    public void control(ServerLevel level, UUID owner, UUID id, String action, int value) {
+        ColonyJob job = jobs.get(id); if (job == null || !job.owner.equals(owner)) throw new IllegalArgumentException("denied");
+        UUID parentId = job.parentProject;
+        if (parentId != null && !job.finished() && !job.cancelled) {
+            ConstructionManager construction = ConstructionManager.get(level);
+            if (readOnly() || construction.readOnly()) throw new IllegalArgumentException("data");
+            construction.update(owner, parentId, action, value); synchronizeSupplies(construction); redispatch();
+        } else update(owner, id, action, value);
     }
     public void dispatchJob(ServerLevel level, ColonyJob job, List<WorkerEntity> workers, Set<UUID> assigned, Set<BlockPos> claimed, ReservationLedger ledger, long time) {
         job.reason = job.cancelled ? "cancelled" : job.paused ? "paused" : job.finished() ? "complete" : "no_worker";
@@ -178,6 +205,8 @@ public final class ColonyWorkManager extends SavedData {
         for (ColonyJob job : jobs(Objects.requireNonNull(player.getUUID()))) {
             JsonObject entry = new JsonObject(); entry.addProperty("id", job.id.toString()); entry.addProperty("kind", job.kind.name());
             entry.addProperty("name", "colonycamera.work.kind." + job.kind.name().toLowerCase(java.util.Locale.ROOT)); entry.addProperty("priority", job.priority);
+            entry.addProperty("supply", job.parentProject != null);
+            if (job.parentProject != null) entry.addProperty("name", CraftingService.output(Objects.requireNonNull(player.serverLevel()), job.recipe).getDescriptionId());
             entry.addProperty("done", job.done); entry.addProperty("total", job.total()); entry.addProperty("reason", job.reason);
             entry.addProperty("finished", job.finished());
             BlockPos position = job.station != null ? job.station : job.targets.isEmpty() ? null : job.targets.get(0);
@@ -199,13 +228,14 @@ public final class ColonyWorkManager extends SavedData {
     }
     @Override @Nonnull public CompoundTag save(CompoundTag root) {
         if (rejected != null) return Objects.requireNonNull(rejected.copy());
-        root.putInt("schemaVersion", 1); ListTag list = new ListTag();
+        root.putInt("schemaVersion", 2); ListTag list = new ListTag();
         for (ColonyJob job : jobs.values()) {
             CompoundTag tag = new CompoundTag(); tag.putUUID("id", job.id); tag.putUUID("owner", job.owner); tag.putString("ownerName", job.ownerName);
             tag.putString("kind", Objects.requireNonNull(job.kind.name())); tag.putInt("priority", job.priority); tag.putLong("sequence", job.sequence);
             tag.putLongArray("targets", Objects.requireNonNull(job.targets.stream().mapToLong((BlockPos checkedElement) -> Objects.requireNonNull(checkedElement).asLong()).toArray())); ListTag states = new ListTag();
             for (String state : job.expectedStates) states.add(Objects.requireNonNull(StringTag.valueOf(Objects.requireNonNull(state)))); tag.put("states", states);
             if (job.station != null) tag.putLong("station", job.station.asLong()); tag.putString("recipe", job.recipe); tag.putInt("requested", job.requested);
+            UUID parent = job.parentProject; if (parent != null) tag.putUUID("parentProject", parent);
             tag.putInt("done", job.done); tag.putLongArray("completed", Objects.requireNonNull(job.completed.toLongArray())); tag.putBoolean("paused", job.paused); tag.putBoolean("cancelled", job.cancelled); list.add(tag);
         }
         root.put("jobs", list); return root;
@@ -213,7 +243,7 @@ public final class ColonyWorkManager extends SavedData {
     @Nonnull public static ColonyWorkManager load(CompoundTag root) {
         ColonyWorkManager manager = new ColonyWorkManager();
         try {
-            if (!root.contains("schemaVersion", Tag.TAG_INT) || root.getInt("schemaVersion") != 1 || !(root.get("jobs") instanceof ListTag entries)
+            if (!root.contains("schemaVersion", Tag.TAG_INT) || root.getInt("schemaVersion") != 1 && root.getInt("schemaVersion") != 2 || !(root.get("jobs") instanceof ListTag entries)
                     || entries.size() > 4096 || !entries.isEmpty() && entries.getElementType() != Tag.TAG_COMPOUND) throw new IllegalArgumentException("data");
             for (int i = 0; i < entries.size(); i++) {
                 CompoundTag tag = entries.getCompound(i);
@@ -226,6 +256,10 @@ public final class ColonyWorkManager extends SavedData {
                 job.targets = Objects.requireNonNull(java.util.Arrays.stream(tag.getLongArray("targets")).mapToObj(BlockPos::of).toList());
                 var expected = new ArrayList<String>(); for (int state = 0; state < states.size(); state++) expected.add(states.getString(state)); job.expectedStates = Objects.requireNonNull(List.copyOf(expected));
                 job.station = tag.contains("station", Tag.TAG_LONG) ? BlockPos.of(tag.getLong("station")) : null; job.recipe = Objects.requireNonNull(tag.getString("recipe"));
+                if (root.getInt("schemaVersion") >= 2 && tag.contains("parentProject")) {
+                    if (!tag.hasUUID("parentProject") || job.kind != ColonyJob.Kind.CRAFT) throw new IllegalArgumentException("data");
+                    job.parentProject = Objects.requireNonNull(tag.getUUID("parentProject"));
+                }
                 job.requested = tag.getInt("requested"); job.done = tag.getInt("done"); job.completed.or(BitSet.valueOf(tag.getLongArray("completed")));
                 job.paused = tag.getBoolean("paused"); job.cancelled = tag.getBoolean("cancelled");
                 if (job.done < 0 || job.requested < 1 || job.sequence == Long.MAX_VALUE || job.done > job.requested && job.kind != ColonyJob.Kind.MINE && job.kind != ColonyJob.Kind.SWEEP) throw new IllegalArgumentException("data");

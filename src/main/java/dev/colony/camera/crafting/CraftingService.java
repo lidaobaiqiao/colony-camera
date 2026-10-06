@@ -9,6 +9,7 @@ import dev.colony.camera.resources.GroundResources;
 import dev.colony.camera.resources.StorageResources;
 import dev.colony.camera.resources.ReservationLedger;
 import dev.colony.camera.storage.StorageNetwork;
+import dev.colony.camera.storage.StorageAccess;
 import dev.colony.camera.storage.WarehouseInventory;
 import dev.colony.camera.tech.TechProgress;
 import dev.colony.camera.work.ColonyJob;
@@ -20,6 +21,10 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.crafting.CraftingRecipe;
+import net.minecraft.world.item.crafting.RecipeType;
+import net.minecraft.world.item.crafting.ShapelessRecipe;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.ShapedRecipe;
 import net.minecraft.world.level.block.state.BlockState;
@@ -82,17 +87,51 @@ public final class CraftingService {
                 new Definition("minecraft:diamond_shovel", () -> Objects.requireNonNull(Items.DIAMOND_SHOVEL), 3)));
     }
     @Nullable private static Definition definition(String id) { return DEFINITIONS.stream().filter(value -> value.id().equals(id)).findFirst().orElse(null); }
-    @Nullable private static ShapedRecipe recipe(ServerLevel level, String id) {
+    @Nullable private static CraftingRecipe recipe(ServerLevel level, String id) {
         ResourceLocation location = ResourceLocation.tryParse(id); if (location == null) return null;
         var value = level.getRecipeManager().byKey(location).orElse(null);
-        return value instanceof ShapedRecipe shaped && shaped.getWidth() >= 1 && shaped.getWidth() <= 3
-                && shaped.getHeight() >= 1 && shaped.getHeight() <= 3 && shaped.getIngredients().stream().anyMatch(ingredient -> !ingredient.isEmpty()) ? shaped : null;
+        if (!(value instanceof CraftingRecipe crafting) || crafting.isSpecial() || crafting.getIngredients().isEmpty()
+                || crafting.getIngredients().size() > 9 || crafting.getIngredients().stream().allMatch(ingredient -> Objects.requireNonNull(ingredient).isEmpty())) return null;
+        if (crafting instanceof ShapedRecipe shaped && shaped.getWidth() >= 1 && shaped.getWidth() <= 3 && shaped.getHeight() >= 1 && shaped.getHeight() <= 3) return shaped;
+        return crafting instanceof ShapelessRecipe ? crafting : null;
+    }
+    @Nullable private static Definition definition(ServerLevel level, String id) {
+        Definition known = definition(id); if (known != null) return known;
+        CraftingRecipe recipe = recipe(level, id); if (recipe == null) return null;
+        ItemStack result = recipe.getResultItem(Objects.requireNonNull(level.registryAccess()));
+        if (result.isEmpty() || result.hasTag() || !(result.getItem() instanceof BlockItem)) return null;
+        Item item = Objects.requireNonNull(result.getItem()); return new Definition(id, () -> item, 0);
+    }
+    @Nonnull public static List<String> blockRecipes(ServerLevel level) {
+        return Objects.requireNonNull(level.getRecipeManager().getAllRecipesFor(Objects.requireNonNull(RecipeType.CRAFTING)).stream()
+                .filter(value -> value.getResultItem(Objects.requireNonNull(level.registryAccess())).getItem() instanceof BlockItem)
+                .map(value -> Objects.requireNonNull(value.getId().toString())).filter(id -> definition(level, Objects.requireNonNull(id)) != null).sorted().toList());
+    }
+    @Nonnull public static ItemStack output(ServerLevel level, String id) {
+        CraftingRecipe recipe = recipe(level, id);
+        return Objects.requireNonNull(recipe == null ? ItemStack.EMPTY : recipe.getResultItem(Objects.requireNonNull(level.registryAccess())).copy());
+    }
+    public static boolean hasIngredients(ServerLevel level, String id, Set<Item> materials) {
+        CraftingRecipe recipe = recipe(level, id); if (recipe == null) return false;
+        return recipe.getIngredients().stream().filter(ingredient -> !ingredient.isEmpty()).allMatch(ingredient ->
+                java.util.Arrays.stream(ingredient.getItems()).anyMatch(stack -> materials.contains(stack.getItem())));
+    }
+    /** Cheap prefilter only; canProduce still checks touch, reservations, quantity and output space. */
+    @Nonnull public static Set<Item> materialsNear(ServerLevel level, UUID owner, BlockPos station) {
+        Set<Item> result = new java.util.HashSet<>();
+        for (int dy = -3; dy <= 3; dy++) for (int dx = -3; dx <= 3; dx++) for (int dz = -3; dz <= 3; dz++) {
+            if (dx * dx + dy * dy + dz * dz > 9) continue; BlockPos pos = Objects.requireNonNull(station.offset(dx, dy, dz));
+            if (!GroundResources.loaded(level, pos) || !(level.getBlockEntity(pos) instanceof MachineBlockEntity machine)
+                    || !machine.permits(owner) || machine.kind() != ColonyContent.Kind.WAREHOUSE && machine.kind() != ColonyContent.Kind.NETWORK_PORT) continue;
+            for (var entry : StorageAccess.at(level, pos, owner).entries()) if (!entry.item().hasTag()) result.add(entry.item().getItem());
+        }
+        return Objects.requireNonNull(result);
     }
 
     @Nonnull public static JsonArray catalog(ServerLevel level, UUID owner) {
         TechProgress technology = TechProgress.get(level); int tier = technology.tier(owner); JsonArray result = new JsonArray();
         for (Definition definition : DEFINITIONS) {
-            ShapedRecipe recipe = recipe(level, definition.id()); if (recipe == null) continue;
+            CraftingRecipe recipe = recipe(level, definition.id()); if (recipe == null) continue;
             ItemStack output = Objects.requireNonNull(recipe.getResultItem(Objects.requireNonNull(level.registryAccess())));
             if (!validOutput(output, definition)) continue;
             JsonObject entry = new JsonObject(); entry.addProperty("id", definition.id()); entry.addProperty("name", output.getDescriptionId());
@@ -117,8 +156,16 @@ public final class CraftingService {
         return result;
     }
     public static boolean supportedRecipe(String id) { return definition(id) != null; }
+    /** Uses the same inventory simulation as execution; this never reserves or moves materials. */
+    public static boolean canProduce(ServerLevel level, WorkerEntity worker, BlockPos station, BlockPos stand, String id, ReservationLedger ledger) {
+        UUID owner = worker.owner();
+        if (owner == null || !allowed(level, owner, id) || !safeStand(level, stand)) return false;
+        ColonyJob preview = new ColonyJob(Objects.requireNonNull(UUID.randomUUID()), owner, "BuildPreview", ColonyJob.Kind.CRAFT, 5, 0);
+        preview.station = station; preview.recipe = id;
+        return station(level, worker, preview, station) && prepare(level, worker, preview, stand, ledger, null).bank() != null;
+    }
     public static boolean allowed(ServerLevel level, UUID owner, String id) {
-        Definition definition = definition(id); ShapedRecipe recipe = recipe(level, id); TechProgress technology = TechProgress.get(level);
+        Definition definition = definition(level, id); CraftingRecipe recipe = recipe(level, id); TechProgress technology = TechProgress.get(level);
         return definition != null && recipe != null && !technology.readOnly() && technology.tier(owner) >= definition.tier()
                 && validOutput(Objects.requireNonNull(recipe.getResultItem(Objects.requireNonNull(level.registryAccess()))), definition);
     }
@@ -128,7 +175,7 @@ public final class CraftingService {
         if (station == null || !station(level, worker, job, station)) { job.reason = "station"; return null; }
         if (TechProgress.get(level).readOnly()) { job.reason = "tech_data"; return null; }
         if (job.kind == ColonyJob.Kind.CRAFT) {
-            Definition definition = definition(job.recipe);
+            Definition definition = definition(level, job.recipe);
             if (definition == null || recipe(level, job.recipe) == null) { job.reason = "recipe"; return null; }
             if (TechProgress.get(level).tier(job.owner) < definition.tier()) { job.reason = "technology"; return null; }
         } else {
@@ -241,7 +288,7 @@ public final class CraftingService {
             for (TechProgress.Cost cost : TechProgress.costs(target)) if (!bank.consume(new ItemStack(cost.item()), cost.count())) return new Prepared("materials", null);
             return new Prepared("ready", bank);
         }
-        Definition definition = definition(job.recipe); ShapedRecipe recipe = recipe(level, job.recipe);
+        Definition definition = definition(level, job.recipe); CraftingRecipe recipe = recipe(level, job.recipe);
         if (definition == null || recipe == null) return new Prepared("recipe", null);
         if (tier < definition.tier()) return new Prepared("technology", null);
         RecipeGrid grid = new RecipeGrid(); int[] attempts = {0};
@@ -350,10 +397,11 @@ public final class CraftingService {
             for (InventoryCopy copy : copies) { residual = ItemHandlerHelper.insertItemStacked(copy.staged(), residual, false); if (residual.isEmpty()) return true; }
             return residual.isEmpty();
         }
-        boolean fill(ShapedRecipe recipe, RecipeGrid grid, int index, int[] attempts) {
+        boolean fill(CraftingRecipe recipe, RecipeGrid grid, int index, int[] attempts) {
             if (index >= recipe.getIngredients().size()) return true;
             if (++attempts[0] > 2048) return false;
-            Ingredient ingredient = recipe.getIngredients().get(index); int gridSlot = index / recipe.getWidth() * 3 + index % recipe.getWidth();
+            Ingredient ingredient = recipe.getIngredients().get(index);
+            int gridSlot = recipe instanceof ShapedRecipe shaped ? index / shaped.getWidth() * 3 + index % shaped.getWidth() : index;
             if (ingredient.isEmpty()) return fill(recipe, grid, index + 1, attempts);
             for (InventoryCopy copy : copies) for (int slot = 0; slot < copy.staged().getSlots(); slot++) {
                 ItemStack candidate = copy.staged().getStackInSlot(slot);

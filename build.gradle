@@ -141,7 +141,7 @@ tasks.register('verifyArchitecture') {
         if (hudLayout =~ /(?m)^import\s+(net\.|org\.|com\.)/) {
             throw new GradleException('StrategyHudLayout must remain independent of game APIs')
         }
-        ['preset/BlockPreset', 'planning/ProjectionPlacement', 'client/screen/ProjectionPanelLayout', 'client/work/WorkPanelLayout', 'worker/MiningSkill', 'resources/ReservationLedger', 'construction/ProjectOrder', 'network/ConstructionPayload'].each { model ->
+        ['preset/BlockPreset', 'planning/ProjectionPlacement', 'client/screen/ProjectionPanelLayout', 'client/screen/BuildPanelLayout', 'client/screen/BuildCatalogFilter', 'client/work/WorkPanelLayout', 'worker/MiningSkill', 'resources/ReservationLedger', 'construction/ProjectOrder', 'network/ConstructionPayload'].each { model ->
             def text = file("src/main/java/dev/colony/camera/${model}.java").getText('UTF-8')
             if (text =~ /(?m)^import\s+(net\.|org\.|com\.)/) {
                 throw new GradleException("${model} must remain independent of game APIs")
@@ -183,6 +183,13 @@ tasks.register('verifyModJar') {
                     'dev/colony/camera/preset/BlockPreset.class',
                     'dev/colony/camera/preset/BlockStateResolver.class',
                     'dev/colony/camera/construction/BuildPlan.class',
+                    'dev/colony/camera/construction/BlockBuilding.class',
+                    'dev/colony/camera/construction/BuildCatalogService.class',
+                    'dev/colony/camera/network/BuildNetwork.class',
+                    'dev/colony/camera/client/construction/BuildingClient.class',
+                    'dev/colony/camera/client/screen/BuildPanel.class',
+                    'dev/colony/camera/client/screen/BuildPanelLayout.class',
+                    'dev/colony/camera/client/screen/BuildCatalogFilter.class',
                     'dev/colony/camera/construction/ConstructionManager.class',
                     'dev/colony/camera/construction/ConstructionEvents.class',
                     'dev/colony/camera/construction/ProjectOrder.class',

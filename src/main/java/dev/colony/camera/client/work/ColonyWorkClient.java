@@ -34,7 +34,7 @@ import java.util.UUID;
 public final class ColonyWorkClient {
     public record Job(@Nonnull UUID id, @Nonnull String kind, @Nonnull String name, int priority,
                       int done, int total, @Nonnull String reason, boolean paused, boolean cancelled, boolean finished,
-                      long sequence, @Nullable BlockPos origin) {}
+                      long sequence, @Nullable BlockPos origin, boolean supply) {}
     public record Worker(@Nonnull UUID id, int miningLevel, int xp, @Nonnull String tool) {}
     public record Station(@Nonnull BlockPos pos, boolean research) {}
     public record Ingredient(@Nonnull String item, @Nonnull String name, int count, @Nonnull List<String> alternatives) {}
@@ -121,7 +121,7 @@ public final class ColonyWorkClient {
                         string(job, "name", ""), integer(job, "priority", 5), integer(job, "done", 0), integer(job, "total", 0),
                         string(job, "reason", "queued"), bool(job, "paused", false), bool(job, "cancelled", false),
                         bool(job, "finished", integer(job, "done", 0) >= integer(job, "total", 0)), longValue(job, "sequence", 0),
-                        job.has("pos") ? BlockPos.of(longValue(job, "pos", 0)) : null));
+                        job.has("pos") ? BlockPos.of(longValue(job, "pos", 0)) : null, bool(job, "supply", false)));
             }
             List<Worker> newWorkers = new ArrayList<>();
             for (JsonElement entry : array(root, "workers")) {

@@ -72,7 +72,7 @@ final class ProjectionPanel {
     }
 
     boolean blocks(double x, double y) {
-        return modal() || controller.draft() != null && draftBounds().contains(x, y);
+        return modal() || controller.draft() != null && !controller.blockDraft() && draftBounds().contains(x, y);
     }
 
     boolean escape() {
@@ -143,7 +143,7 @@ final class ProjectionPanel {
             if (mode == Mode.LIBRARY) renderLibrary(graphics, currentFont, bounds);
             else renderDialog(graphics, currentFont, bounds, mouseX, mouseY, partialTick);
             if (!constructionTab || mode != Mode.LIBRARY) fitted(graphics, currentFont, controller.status(), bounds.x() + 10, bounds.bottom() - 13, bounds.width() - 20, 0xFFD379);
-        } else if (controller.draft() != null) {
+        } else if (controller.draft() != null && !controller.blockDraft()) {
             var bounds = draftBounds();
             StrategyHud.panel(graphics, bounds);
             ProjectionPlacement draft = Objects.requireNonNull(controller.draft());
@@ -218,7 +218,7 @@ final class ProjectionPanel {
             int index = row + scroll; int y = bounds.y() + 44 + row * 27;
             if (index == selected) graphics.fill(bounds.x() + 8, y, bounds.x() + 8 + listWidth, y + 25, 0xFF234B4B);
             var job = jobs.get(index);
-            fitted(graphics, currentFont, Objects.requireNonNull(Component.literal(job.name())), bounds.x() + 13, y + 3, listWidth - 10, 0xE8F1F5);
+            fitted(graphics, currentFont, Objects.requireNonNull(job.palettePlan() == null ? Component.literal(job.name()) : Component.translatable(job.name())), bounds.x() + 13, y + 3, listWidth - 10, 0xE8F1F5);
             fitted(graphics, currentFont, constructionText("row", job.priority(), job.completed(), job.total()), bounds.x() + 13, y + 15, listWidth - 10, 0x90A8B8);
         }
         int x = bounds.x() + listWidth + 20; int available = bounds.right() - x - 10;
@@ -303,7 +303,7 @@ final class ProjectionPanel {
                         name == null || !name.getValue().isBlank());
                 control(Action.CANCEL, bounds.x() + 18 + bw, bounds.bottom() - 38, bw, 20, "cancel", true);
             }
-        } else if (controller.draft() != null) {
+        } else if (controller.draft() != null && !controller.blockDraft()) {
             for (var geometry : layout.draftControls()) {
                 var action = Action.valueOf(Objects.requireNonNull(geometry.action().name()));
                 String label = switch (geometry.action()) {

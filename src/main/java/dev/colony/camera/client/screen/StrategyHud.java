@@ -126,7 +126,7 @@ final class StrategyHud {
         StrategyHudLayout.Rect bounds = control.bounds();
         StrategyHudLayout.Action action = control.action();
         boolean tool = switch (action) {
-            case SIMILAR, VOLUME, ADDITIVE, CLEAR, SAVE_PRESET, LIBRARY, WORK, SIMILAR_LIMIT -> true;
+            case SIMILAR, VOLUME, ADDITIVE, CLEAR, SAVE_PRESET, LIBRARY, WORK, SIMILAR_LIMIT, BUILD -> true;
             default -> false;
         };
         boolean active = switch (action) {
@@ -235,6 +235,7 @@ final class StrategyHud {
             case SAVE_PRESET -> Objects.requireNonNull(Component.literal("B"));
             case LIBRARY -> Objects.requireNonNull(Component.literal("P"));
             case WORK -> Objects.requireNonNull(Component.literal("O"));
+            case BUILD -> Objects.requireNonNull(Component.literal("N"));
         };
     }
 
@@ -320,7 +321,7 @@ final class StrategyHud {
                 line(graphics, x + 1, y + 7, x + 6, y + 2, ink);
                 line(graphics, x + 1, y + 7, x + 6, y + 12, ink);
             }
-            case SAVE_PRESET -> {
+            case BUILD, SAVE_PRESET -> {
                 graphics.fill(x + 2, y + 1, x + 12, y + 13, ink);
                 graphics.fill(x + 4, y + 2, x + 9, y + 5, BACKGROUND);
                 graphics.fill(x + 4, y + 8, x + 10, y + 12, BACKGROUND);

@@ -30,6 +30,10 @@ public final class ConstructionClient {
     @Nullable private static ClientLevel currentLevel;
     private ConstructionClient() {}
     @Nonnull public static List<ConstructionNetwork.View> projects() { return projects; }
+    @Nonnull public static List<ProjectionPlacement> palettePlans() {
+        return Objects.requireNonNull(projects.stream().filter(view -> !view.cancelled() && view.completed() < view.total())
+                .map(view -> Objects.requireNonNull(view).palettePlan()).filter(Objects::nonNull).toList());
+    }
     @Nonnull public static Component notice() { return notice; }
     public static int workers() { return workers; }
     public static int cores() { return cores.size(); }

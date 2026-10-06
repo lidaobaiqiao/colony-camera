@@ -28,6 +28,7 @@ public final class ConstructionClient {
     private static int workers;
     @Nonnull private static List<BlockPos> cores = Objects.requireNonNull(List.of());
     @Nullable private static ClientLevel currentLevel;
+    private static long noticeTime;
     private ConstructionClient() {}
     @Nonnull public static List<ConstructionNetwork.View> projects() { return projects; }
     @Nonnull public static List<ProjectionPlacement> palettePlans() {
@@ -35,6 +36,7 @@ public final class ConstructionClient {
                 .map(view -> Objects.requireNonNull(view).palettePlan()).filter(Objects::nonNull).toList());
     }
     @Nonnull public static Component notice() { return notice; }
+    public static boolean recentNotice() { return noticeTime != 0 && System.nanoTime() - noticeTime < 4_000_000_000L; }
     public static int workers() { return workers; }
     public static int cores() { return cores.size(); }
     public static void print(@Nullable ConstructionNetwork.View project) {
@@ -42,7 +44,7 @@ public final class ConstructionClient {
         if (player == null) return;
         BlockPos target = project == null ? Objects.requireNonNull(player.blockPosition()) : new BlockPos(project.x(), project.y(), project.z());
         var core = cores.stream().min(java.util.Comparator.comparingDouble(pos -> pos.distSqr(target))).orElse(null);
-        if (core == null) { notice = Objects.requireNonNull(Component.translatable("colonycamera.print.no_core")); return; }
+        if (core == null) { notice = Objects.requireNonNull(Component.translatable("colonycamera.print.no_core")); noticeTime = System.nanoTime(); return; }
         ConstructionNetwork.CHANNEL.sendToServer(new ConstructionNetwork.Request("print", ConstructionNetwork.NONE, 0, Objects.requireNonNull(String.valueOf(core.asLong()))));
     }
     public static void request(String action, UUID id, int value) { ConstructionNetwork.CHANNEL.sendToServer(new ConstructionNetwork.Request(action, id, value, "")); }
@@ -51,7 +53,7 @@ public final class ConstructionClient {
         String payload = Objects.requireNonNull(ProjectionCodec.encode(placement).toString());
         try { ConstructionPayload.encode(payload); }
         catch (IllegalArgumentException failure) {
-            notice = Objects.requireNonNull(Component.translatable("colonycamera.construction.error.large")); return;
+            notice = Objects.requireNonNull(Component.translatable("colonycamera.construction.error.large")); noticeTime = System.nanoTime(); return;
         }
         ConstructionNetwork.CHANNEL.sendToServer(new ConstructionNetwork.Request("create", placement.id(), 5, payload));
     }
@@ -61,7 +63,7 @@ public final class ConstructionClient {
         currentLevel = level;
         projects = Objects.requireNonNull(event.snapshot.projects()); workers = event.snapshot.workers();
         cores = Objects.requireNonNull(event.snapshot.cores());
-        if (!event.snapshot.notice().getString().isEmpty()) notice = Objects.requireNonNull(event.snapshot.notice());
+        if (!event.snapshot.notice().getString().isEmpty()) { notice = Objects.requireNonNull(event.snapshot.notice()); noticeTime = System.nanoTime(); }
     }
     @SubscribeEvent public static void tick(TickEvent.ClientTickEvent event) {
         var level = Minecraft.getInstance().level;
@@ -69,6 +71,7 @@ public final class ConstructionClient {
             projects = Objects.requireNonNull(List.of()); notice = Objects.requireNonNull(Component.empty()); workers = 0;
             cores = Objects.requireNonNull(List.of());
             currentLevel = level;
+            noticeTime = 0;
         }
     }
 }

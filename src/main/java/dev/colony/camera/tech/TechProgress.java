@@ -58,7 +58,19 @@ public final class TechProgress extends SavedData {
             JsonObject material = new JsonObject(); material.addProperty("item", String.valueOf(ForgeRegistries.ITEMS.getKey(cost.item())));
             material.addProperty("name", new ItemStack(cost.item()).getDescriptionId()); material.addProperty("count", cost.count()); materials.add(material);
         }
-        result.add("costs", materials); return result;
+        result.add("costs", materials);
+        JsonArray nodes = new JsonArray();
+        for (int stage = 0; stage <= 3; stage++) {
+            JsonObject node = new JsonObject(); node.addProperty("tier", stage); node.addProperty("name", name(stage));
+            node.addProperty("requiredTier", stage - 1); node.addProperty("researchTicks", researchTicks(stage));
+            JsonArray costs = new JsonArray();
+            for (Cost cost : costs(stage)) {
+                JsonObject material = new JsonObject(); material.addProperty("item", String.valueOf(ForgeRegistries.ITEMS.getKey(cost.item())));
+                material.addProperty("name", new ItemStack(cost.item()).getDescriptionId()); material.addProperty("count", cost.count()); costs.add(material);
+            }
+            node.add("costs", costs); nodes.add(node);
+        }
+        result.add("nodes", nodes); return result;
     }
     @Override @Nonnull public CompoundTag save(CompoundTag root) {
         var preserved = rejected; if (preserved != null) return Objects.requireNonNull(preserved.copy());

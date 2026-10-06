@@ -1,45 +1,60 @@
 package dev.colony.camera.client.screen;
+
+import java.util.function.IntUnaryOperator;
 import javax.annotation.Nonnull;
 
-/** One geometry for drawing, hit tests and scrolling at every GUI scale. */
+/** The same clipped rectangles draw and hit-test a movable palette. */
 public final class BuildPanelLayout {
-    @Nonnull public final StrategyHudLayout.Rect panel, search, category, grid, detail, close, available, favorite, choose, refresh, draft;
+    @Nonnull public final StrategyHudLayout.Rect panel, title, search, category, grid, detail, close, newWindow, resize, available, favorite, choose, refresh, draft;
     public final int columns, rows, cellWidth, cellHeight = 26;
+    public final boolean horizontalCategories;
+    private final int[] categoryWidths = new int[7];
+
     public BuildPanelLayout(int width, int height, int draftBottom) {
+        this(width, height, draftBottom, defaultBounds(width, height, draftBottom), index -> 24);
+    }
+    @Nonnull public static StrategyHudLayout.Rect defaultBounds(int width, int height, int bottom) {
         if (width < 1 || height < 1) throw new IllegalArgumentException("viewport");
         int margin = Math.min(8, Math.min(width, height) / 8);
-        int availableWidth = width - margin * 2;
-        int w = Math.min(248, availableWidth * 2 / 5);
-        int h = Math.min(420, Math.max(0, height - margin * 2 - 32));
-        panel = new StrategyHudLayout.Rect(margin, margin, w, h);
+        return WindowGeometry.clamp(new StrategyHudLayout.Rect(margin, margin,
+                Math.min(248, Math.max(120, (width - 2 * margin) * 2 / 5)),
+                Math.min(420, Math.max(0, bottom - margin))), width, Math.min(height, Math.max(1, bottom)));
+    }
+    public BuildPanelLayout(int width, int height, int bottom, StrategyHudLayout.Rect bounds, IntUnaryOperator categoryWidth) {
+        if (width < 1 || height < 1) throw new IllegalArgumentException("viewport");
+        panel = WindowGeometry.clamp(bounds, width, Math.min(height, Math.max(1, bottom)));
+        int w = panel.width(), h = panel.height();
         int inset = Math.min(6, Math.min(w, h) / 8), inside = Math.max(0, w - 2 * inset);
-        close = clipped(w - 24, 3, 20, 18);
+        close = clipped(w - 23, 3, 20, 18);
+        newWindow = clipped(w - 46, 3, 20, 18);
+        title = clipped(1, 1, Math.max(0, w - 48), 22);
+        resize = clipped(w - 9, h - 9, 9, 9);
         search = clipped(inset, 25, inside, 18);
         category = clipped(inset, 47, Math.max(0, inside - 58), 18);
         available = clipped(w - inset - 54, 47, 28, 18);
         refresh = clipped(w - inset - 22, 47, 22, 18);
-        grid = clipped(inset, 67, inside, Math.max(0, h - 67 - 36));
-        detail = clipped(inset, h - 34, inside, 16);
-        favorite = clipped(w - inset - 20, h - 34, 20, 16);
-        choose = clipped(inset, h - 19, inside, 17);
+        int total = 0;
+        for (int i = 0; i < 7; i++) { categoryWidths[i] = Math.max(20, categoryWidth.applyAsInt(i) + 10); total += categoryWidths[i]; }
+        horizontalCategories = total <= category.width();
+        grid = clipped(inset, 67, inside, Math.max(0, h - 67 - 13));
+        detail = clipped(inset, h - 13, Math.max(0, inside - 10), 12);
+        favorite = clipped(w - inset - 30, h - 13, 20, 12);
+        choose = clipped(0, 0, 0, 0);
         columns = Math.max(1, grid.width() / 26); cellWidth = grid.width() / columns; rows = grid.height() / cellHeight;
-        int bottom = Math.min(height - margin, Math.max(margin, draftBottom));
-        int dw = Math.min(248, availableWidth), dh = Math.min(26, Math.max(0, bottom - margin));
-        draft = new StrategyHudLayout.Rect(margin, bottom - dh, dw, dh);
+        draft = new StrategyHudLayout.Rect(0, 0, 0, 0);
     }
     @Nonnull private StrategyHudLayout.Rect clipped(int x, int y, int width, int height) {
         int left = Math.min(panel.width(), Math.max(0, x)), top = Math.min(panel.height(), Math.max(0, y));
         return new StrategyHudLayout.Rect(panel.x() + left, panel.y() + top, Math.min(Math.max(0, width), panel.width() - left), Math.min(Math.max(0, height), panel.height() - top));
     }
     @Nonnull public StrategyHudLayout.Rect category(int index, int count) {
+        if (index < 0 || index >= count || count < 1) throw new IllegalArgumentException("category");
+        if (horizontalCategories) {
+            int x = category.x(); for (int i = 0; i < index; i++) x += categoryWidths[i];
+            return new StrategyHudLayout.Rect(x, category.y(), categoryWidths[index] - 1, category.height());
+        }
         int optionHeight = Math.min(18, Math.max(0, panel.bottom() - category.bottom()) / count);
         return new StrategyHudLayout.Rect(search.x(), category.bottom() + index * optionHeight, search.width(), optionHeight);
-    }
-    @Nonnull public StrategyHudLayout.Rect draftControl(int index) {
-        int buttonWidth = Math.min(22, draft.width() / 5);
-        int inset = Math.min(2, draft.height() / 2);
-        return new StrategyHudLayout.Rect(draft.right() - (5 - index) * buttonWidth, draft.y() + inset,
-                buttonWidth, draft.height() - 2 * inset);
     }
     @Nonnull public StrategyHudLayout.Rect cell(int visibleIndex) {
         return new StrategyHudLayout.Rect(grid.x() + visibleIndex % columns * cellWidth, grid.y() + visibleIndex / columns * cellHeight, cellWidth, cellHeight);
@@ -49,5 +64,5 @@ public final class BuildPanelLayout {
         int column = Math.min(columns - 1, (int) (x - grid.x()) / cellWidth);
         return (scrollRow + (int) (y - grid.y()) / cellHeight) * columns + column;
     }
-    public int maxScroll(int count) { return Math.max(0, (count + columns - 1) / columns - rows); }
+    public int maxScroll(int count) { return Math.max(0, (count + columns - 1) / columns - Math.max(1, rows)); }
 }

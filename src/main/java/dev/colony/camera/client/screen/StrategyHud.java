@@ -1,350 +1,185 @@
 package dev.colony.camera.client.screen;
 
 import dev.colony.camera.client.camera.StrategyCameraController;
+import dev.colony.camera.client.construction.ConstructionClient;
 import dev.colony.camera.client.input.CameraKeyMappings;
-import dev.colony.camera.client.selection.BlockSelectionController;
-import dev.colony.camera.client.selection.SelectionState;
 import dev.colony.camera.client.planning.ProjectionController;
+import dev.colony.camera.client.selection.BlockSelectionController;
+import dev.colony.camera.client.work.ColonyWorkClient;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
-
 import javax.annotation.Nonnull;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Locale;
 
-/** Draws the strategy HUD. Geometry and input ownership use the same layout. */
+/** Anchored command groups with transient feedback and upward menus. */
 final class StrategyHud {
-    private static final int BACKGROUND = 0xE0101C28;
-    private static final int BORDER = 0xFF334958;
-    private static final int TEXT = 0xE8F1F5;
-    private static final int MUTED = 0x90A8B8;
-    private static final int ACCENT = 0x67DEC2;
-    private static final int GOLD = 0xFFD379;
-    private static final int HOVER = 0xFF263B4B;
-    private static final int ACTIVE = 0xFF203E40;
-
-    private StrategyHudLayout layout;
-    private boolean helpOpen;
+    private static final int TEXT = 0xE8F1F5, MUTED = 0x90A8B8, ACCENT = 0x67DEC2, GOLD = 0xFFD379;
+    private StrategyHudLayout layout = new StrategyHudLayout(1, 1);
+    private StrategyHudLayout.Menu menu = StrategyHudLayout.Menu.NONE;
+    private boolean helpOpen, buildOpen;
     private List<HelpRow> helpRows = List.of();
 
-    void resize(int width, int height) {
-        layout = new StrategyHudLayout(width, height);
+    void resize(@Nonnull Font font, int width, int height) {
+        layout = new StrategyHudLayout(width, height, action -> font.width(label(action))
+                + (action == StrategyHudLayout.Action.PROJECTION_MENU || action == StrategyHudLayout.Action.COLONY_MENU ? 11 : 0));
         helpRows = List.of(
-                new HelpRow(text("mouse.left"), text("help.selection")),
-                new HelpRow(text("mouse.left"), text("help.volume")),
+                new HelpRow(text("mouse.left"), text("help.selection_all")),
                 new HelpRow(text("mouse.right"), text("help.pan")),
-                new HelpRow(text("mouse.middle"), text("help.rotate")),
+                new HelpRow(text("mouse.middle"), text("help.middle")),
                 new HelpRow(CameraKeyMappings.angleLockKeyName(), text("help.angle_lock")),
                 new HelpRow(text("mouse.wheel"), text("help.zoom")),
-                new HelpRow(Objects.requireNonNull(Component.literal("W / A / S / D")), text("help.move")),
-                new HelpRow(Objects.requireNonNull(Component.empty().append(CameraKeyMappings.moveUpKeyName()).append(" / ")
-                        .append(CameraKeyMappings.moveDownKeyName())), text("help.elevation")),
-                new HelpRow(Objects.requireNonNull(Component.literal("Shift")), text("help.speed")),
+                new HelpRow(literal("W / A / S / D"), text("help.move")),
+                new HelpRow(Objects.requireNonNull(Component.empty().append(CameraKeyMappings.moveUpKeyName()).append(" / ").append(CameraKeyMappings.moveDownKeyName())), text("help.elevation")),
+                new HelpRow(literal("Shift"), text("help.speed")),
                 new HelpRow(CameraKeyMappings.addSelectionKeyName(), text("help.additive")),
                 new HelpRow(CameraKeyMappings.volumeSelectionKeyName(), text("help.mode")),
-                new HelpRow(clearBinding(), text("help.clear")),
+                new HelpRow(Objects.requireNonNull(Component.empty().append(text("mouse.right_click")).append(" / ").append(CameraKeyMappings.clearSelectionKeyName())), text("help.clear")),
+                new HelpRow(literal("N / P / B / O"), text("help.panels")),
                 new HelpRow(Objects.requireNonNull(Component.empty().append(CameraKeyMappings.toggleKeyName()).append(" / Esc")), text("help.exit")));
     }
-
     StrategyHudLayout layout() { return layout; }
     boolean helpOpen() { return helpOpen; }
-    void toggleHelp() { helpOpen = !helpOpen; }
+    boolean menuOpen() { return menu != StrategyHudLayout.Menu.NONE; }
+    void toggleHelp() { helpOpen = !helpOpen; closeMenu(); }
     void closeHelp() { helpOpen = false; }
+    boolean closeMenu() { boolean wasOpen = menuOpen(); menu = StrategyHudLayout.Menu.NONE; return wasOpen; }
+    void toggleMenu(StrategyHudLayout.Menu next) {
+        menu = menu == next ? StrategyHudLayout.Menu.NONE : next;
+        if (menu == StrategyHudLayout.Menu.COLONY) { ColonyWorkClient.refresh(); ConstructionClient.refresh(); }
+    }
+    StrategyHudLayout.Action actionAt(double x, double y) { return layout.actionAt(x, y, menu); }
+    boolean menuContains(double x, double y) { return menuOpen() && layout.menu(menu).contains(x, y); }
     boolean blocksWorld(double x, double y, StrategyCameraController controller, boolean sidebarOpen) {
-        return layout != null && layout.blocksWorld(x, y, helpOpen, !sidebarOpen && selectionVisible(controller.selection()), !sidebarOpen && hintVisible(controller.selection()));
+        return menuOpen() || layout.blocksWorld(x, y, helpOpen, !sidebarOpen && selectionVisible(controller.selection()), hintVisible(controller.selection()));
     }
     private boolean selectionVisible(BlockSelectionController selection) { return selection.selectionCount() > 0 && ProjectionController.instance().draft() == null; }
     private boolean hintVisible(BlockSelectionController selection) {
-        var planning = ProjectionController.instance();
-        return !planning.blockDraft() && (planning.draft() != null || planning.recentStatus() || selection.recentStatus() || selection.working() || selection.selectingHeight());
+        var p = ProjectionController.instance();
+        return ColonyWorkClient.recentNotice() || ConstructionClient.recentNotice() || !p.blockDraft()
+                && (p.draft() != null || p.recentStatus() || selection.recentStatus() || selection.working() || selection.selectingHeight());
     }
-
-    void render(GuiGraphics graphics, @Nonnull Font font, StrategyCameraController controller, int mouseX, int mouseY,
-                int width, int height, boolean sidebarOpen) {
-        BlockSelectionController selection = controller.selection();
-        if (!sidebarOpen && selectionVisible(selection)) drawSelection(graphics, font, selection);
-        panel(graphics, layout.dock());
-        for (StrategyHudLayout.Control control : layout.controls()) {
-            drawControl(graphics, font, control, controller, !helpOpen && control.bounds().contains(mouseX, mouseY));
+    void render(GuiGraphics g, @Nonnull Font font, StrategyCameraController controller, int mx, int my, int width, int height, boolean sidebarOpen) {
+        buildOpen = sidebarOpen;
+        var selection = controller.selection();
+        if (!sidebarOpen && selectionVisible(selection)) {
+            panel(g, layout.selection());
+            drawFitted(g, font, text("selection_count", modeName(selection), selection.selectionCount()), layout.selection().x() + 7, layout.selection().y() + 6, layout.selection().width() - 14, GOLD);
         }
-        ProjectionController planning = ProjectionController.instance();
-        Component hint = planning.draft() != null || planning.recentStatus() ? planning.status() : hint(selection);
-        StrategyHudLayout.Rect hintBounds = layout.hint();
-        if (!sidebarOpen && hintVisible(selection)) {
-            panel(graphics, hintBounds);
-            graphics.fill(hintBounds.x() + 1, hintBounds.y() + 3, hintBounds.x() + 3, hintBounds.bottom() - 3,
-                    0xFF000000 | (selection.recentStatus() ? GOLD : ACCENT));
-            drawFitted(graphics, font, hint, hintBounds.x() + 9, hintBounds.y() + 6, hintBounds.width() - 18, selection.recentStatus() ? GOLD : MUTED);
+        panel(g, layout.leftDock()); panel(g, layout.rightDock());
+        for (var c : layout.controls()) drawControl(g, font, c, controller, c.bounds().contains(mx, my), false);
+        if (hintVisible(selection)) {
+            var r = layout.hint(); panel(g, r);
+            drawFitted(g, font, hint(selection), r.x() + 8, r.y() + 6, r.width() - 16, GOLD);
         }
-        if (helpOpen) {
-            drawHelp(graphics, font, mouseX, mouseY, width, height);
-        } else {
-            StrategyHudLayout.Action action = layout.actionAt(mouseX, mouseY);
-            if (action != null) {
-                drawTooltip(graphics, font, List.of(tooltip(action, controller)), mouseX, mouseY, width);
-            } else if (!sidebarOpen && hintVisible(selection) && layout.hint().contains(mouseX, mouseY)) {
-                drawTooltip(graphics, font, List.of(hint), mouseX, mouseY, width);
-            } else if (!sidebarOpen && selectionVisible(selection) && layout.selection().contains(mouseX, mouseY) && selection.selectionCount() == 1) {
-                drawTooltip(graphics, font, List.of(selection.selectedName(), selection.selectedCoordinates()), mouseX, mouseY, width);
+    }
+    void renderOverlay(GuiGraphics g, @Nonnull Font font, StrategyCameraController controller, int mx, int my, int width, int height) {
+        if (helpOpen) { drawHelp(g, font, mx, my, width, height); return; }
+        if (menuOpen()) {
+            var r = layout.menu(menu); panel(g, r);
+            if (menu == StrategyHudLayout.Menu.COLONY && r.height() >= 70) {
+                drawFitted(g, font, text("overview.workers", ColonyWorkClient.workers().size(), ConstructionClient.cores()), r.x() + 8, r.y() + 6, r.width() - 16, ACCENT);
+                long projects = ConstructionClient.projects().stream().filter(p -> !p.cancelled() && p.completed() < p.total()).count();
+                long jobs = ColonyWorkClient.jobs().stream().filter(j -> !j.cancelled() && !j.finished()).count();
+                drawFitted(g, font, text("overview.orders", projects, jobs), r.x() + 8, r.y() + 17, r.width() - 16, TEXT);
+                drawFitted(g, font, text("overview.technology", ColonyWorkClient.text(ColonyWorkClient.tech().name())), r.x() + 8, r.y() + 28, r.width() - 16, MUTED);
             }
+            for (var c : layout.menuControls(menu)) drawControl(g, font, c, controller, c.bounds().contains(mx, my), true);
+        }
+        var action = actionAt(mx, my);
+        if (action != null) {
+            Component tip = action == StrategyHudLayout.Action.ANGLE_LOCK
+                    ? text(controller.angleLocked() ? "tip.unlock" : "tip.lock", CameraKeyMappings.angleLockKeyName())
+                    : text("tip." + action.name().toLowerCase(Locale.ROOT));
+            List<Component> tips = new ArrayList<>(); tips.add(tip);
+            if (!enabled(action, controller.selection())) tips.add(text(controller.selection().working() || controller.selection().selectingHeight() ? "disabled.pending" : "disabled.selection"));
+            drawTooltip(g, font, tips, mx, my, width);
+        } else if (layout.hint().contains(mx, my) && hintVisible(controller.selection())) {
+            drawTooltip(g, font, List.of(hint(controller.selection())), mx, my, width);
         }
     }
-
-    private void drawSelection(GuiGraphics graphics, @Nonnull Font font, BlockSelectionController selection) {
-        StrategyHudLayout.Rect bounds = layout.selection();
-        if (bounds.height() < 12) return;
-        panel(graphics, bounds);
-        Component mode = text(switch (selection.mode()) {
-            case SINGLE -> "tool.single";
-            case SIMILAR -> "tool.similar";
-            case VOLUME -> "tool.volume";
-        });
-        drawFitted(graphics, font, text("selection_count", mode, selection.selectionCount()), bounds.x() + 7, bounds.y() + 6, bounds.width() - 14, GOLD);
-    }
-
-    private void drawControl(GuiGraphics graphics, @Nonnull Font font, StrategyHudLayout.Control control,
-                             StrategyCameraController controller, boolean hovered) {
-        StrategyHudLayout.Rect bounds = control.bounds();
-        StrategyHudLayout.Action action = control.action();
-        boolean tool = switch (action) {
-            case SINGLE, SIMILAR, VOLUME, ADDITIVE, CLEAR, SAVE_PRESET, LIBRARY, WORK, SIMILAR_LIMIT, BUILD -> true;
-            default -> false;
-        };
-        boolean active = switch (action) {
-            case SINGLE -> ProjectionController.instance().draft() == null && controller.selection().mode() == SelectionState.Mode.SINGLE;
-            case SIMILAR -> ProjectionController.instance().draft() == null && controller.selection().mode() == SelectionState.Mode.SIMILAR;
-            case VOLUME -> ProjectionController.instance().draft() == null && controller.selection().volumeMode();
-            case ADDITIVE -> controller.selection().additive();
-            case ANGLE_LOCK -> controller.angleLocked();
-            case HELP -> helpOpen;
-            default -> false;
-        };
-        if (!tool) {
-            panel(graphics, bounds);
-        }
-        if (active || hovered) {
-            graphics.fill(bounds.x() + 1, bounds.y() + 1, bounds.right() - 1, bounds.bottom() - 1,
-                    hovered ? HOVER : ACTIVE);
-        }
-        int color = active ? ACCENT : hovered ? TEXT : MUTED;
-        if (!tool) icon(graphics, action, bounds.x() + (bounds.width() - 14) / 2,
-                bounds.y() + (bounds.height() - 14) / 2, color, controller.angleLocked());
-        if (tool) {
-            drawFitted(graphics, font, label(action), bounds.x() + 4, bounds.y() + Math.max(0, (bounds.height() - 9) / 2), bounds.width() - 8, color);
-        }
-        if (active) {
-            graphics.fill(bounds.x() + 5, bounds.bottom() - 3, bounds.right() - 5, bounds.bottom() - 2,
-                    0xFF000000 | ACCENT);
-        }
-    }
-
-    private void drawHelp(GuiGraphics graphics, @Nonnull Font font, int mouseX, int mouseY, int width, int height) {
-        graphics.fill(0, 0, width, height, 0x80071019);
-        StrategyHudLayout.Rect bounds = layout.help();
-        panel(graphics, bounds);
-        graphics.drawString(font, text("help.title"), bounds.x() + 12, bounds.y() + 10, TEXT, false);
-        graphics.drawString(font, "×", bounds.right() - 17, bounds.y() + 10, MUTED, false);
-        graphics.fill(bounds.x() + 12, bounds.y() + 24, bounds.right() - 12, bounds.y() + 25, BORDER);
-        int rowHeight = Math.max(9, Math.min(12, (bounds.height() - 42) / helpRows.size()));
-        int keyWidth = Math.min(104, (bounds.width() - 24) / 3);
-        int y = bounds.y() + 29;
-        HelpRow hoveredRow = null;
-        for (HelpRow row : helpRows) {
-            drawFitted(graphics, font, row.key(), bounds.x() + 12, y, keyWidth - 8, ACCENT);
-            drawFitted(graphics, font, row.description(), bounds.x() + 12 + keyWidth, y,
-                    bounds.width() - keyWidth - 24, TEXT);
-            if (mouseX >= bounds.x() + 12 && mouseX < bounds.right() - 12 && mouseY >= y && mouseY < y + rowHeight) {
-                hoveredRow = row;
-            }
-            y += rowHeight;
-        }
-        drawFitted(graphics, font, text("help.close"), bounds.x() + 12, bounds.bottom() - 12, bounds.width() - 24, MUTED);
-        if (hoveredRow != null) {
-            drawTooltip(graphics, font, List.of(hoveredRow.key(), hoveredRow.description()), mouseX, mouseY, width);
-        }
-    }
-
-    @Nonnull
-    private Component hint(BlockSelectionController selection) {
-        if (selection.recentStatus()) {
-            return selection.statusMessage();
-        }
-        if (selection.working()) {
-            return Objects.requireNonNull(Component.translatable("screen.colonycamera.selection.working"));
-        }
-        if (selection.selectingHeight()) {
-            return text("hint.height", selection.heightLayers(), Component.translatable(selection.heightOutward()
-                    ? "screen.colonycamera.selection.outward" : "screen.colonycamera.selection.inward"));
-        }
-        return switch (selection.mode()) {
-            case SINGLE -> text("hint.single");
-            case SIMILAR -> text("hint.similar", dev.colony.camera.config.SelectionConfig.similarLimit());
-            case VOLUME -> text("hint.volume");
-        };
-    }
-
-    @Nonnull
-    private Component tooltip(StrategyHudLayout.Action action, StrategyCameraController controller) {
-        if (action == StrategyHudLayout.Action.ANGLE_LOCK) {
-            return text(controller.angleLocked() ? "tip.unlock" : "tip.lock", CameraKeyMappings.angleLockKeyName());
-        }
-        return text("tip." + action.name().toLowerCase(java.util.Locale.ROOT), binding(action));
-    }
-
-    @Nonnull
-    private Component label(StrategyHudLayout.Action action) {
-        return text("tool." + action.name().toLowerCase(java.util.Locale.ROOT));
-    }
-
-    @Nonnull
-    private Component clearBinding() {
-        return Objects.requireNonNull(Component.empty().append(text("mouse.right_click")).append(" / ")
-                .append(CameraKeyMappings.clearSelectionKeyName()));
-    }
-
-    @Nonnull
-    private Component binding(StrategyHudLayout.Action action) {
+    private static boolean enabled(StrategyHudLayout.Action action, BlockSelectionController selection) {
         return switch (action) {
-            case SINGLE, SIMILAR -> text("mouse.left.short");
-            case SIMILAR_LIMIT -> Objects.requireNonNull(Component.literal(Objects.requireNonNull(Integer.toString(dev.colony.camera.config.SelectionConfig.similarLimit()))));
-            case VOLUME -> CameraKeyMappings.volumeSelectionKeyName();
-            case ADDITIVE -> CameraKeyMappings.addSelectionKeyName();
-            case CLEAR -> clearBinding();
-            case ANGLE_LOCK -> CameraKeyMappings.angleLockKeyName();
-            case EXIT -> CameraKeyMappings.toggleKeyName();
-            case HELP -> Objects.requireNonNull(Component.empty());
-            case SAVE_PRESET -> Objects.requireNonNull(Component.literal("B"));
-            case LIBRARY -> Objects.requireNonNull(Component.literal("P"));
-            case WORK -> Objects.requireNonNull(Component.literal("O"));
-            case BUILD -> Objects.requireNonNull(Component.literal("N"));
+            case MINE, SWEEP, SAVE_PRESET -> selection.selectionCount() > 0 && !selection.working() && !selection.selectingHeight();
+            default -> true;
         };
     }
-
-    @Nonnull
-    private static Component text(@Nonnull String suffix, @Nonnull Object... arguments) {
-        return Objects.requireNonNull(Component.translatable("screen.colonycamera.ui." + suffix, arguments));
-    }
-
-    static void drawFitted(GuiGraphics graphics, @Nonnull Font font, @Nonnull Component text, int x, int y, int width, int color) {
-        if (width <= 0) {
-            return;
+    boolean enabled(StrategyHudLayout.Action action, StrategyCameraController controller) { return enabled(action, controller.selection()); }
+    private void drawControl(GuiGraphics g, @Nonnull Font font, StrategyHudLayout.Control c, StrategyCameraController controller, boolean hover, boolean menuItem) {
+        var r = c.bounds(); if (r.height() < 9 || r.width() < 4) return;
+        var a = c.action();
+        boolean active = a == StrategyHudLayout.Action.ANGLE_LOCK && controller.angleLocked()
+                || a == StrategyHudLayout.Action.HELP && helpOpen || a == StrategyHudLayout.Action.BUILD && buildOpen
+                || a == StrategyHudLayout.Action.PROJECTION_MENU && menu == StrategyHudLayout.Menu.PROJECTION
+                || a == StrategyHudLayout.Action.COLONY_MENU && menu == StrategyHudLayout.Menu.COLONY;
+        boolean enabled = enabled(a, controller.selection());
+        if (active || hover && enabled) g.fill(r.x() + 1, r.y() + 1, r.right() - 1, r.bottom() - 1, active ? 0xFF234B4B : 0xFF263B4B);
+        boolean top = a == StrategyHudLayout.Action.ANGLE_LOCK || a == StrategyHudLayout.Action.HELP || a == StrategyHudLayout.Action.EXIT;
+        if (top) panel(g, r);
+        Component caption = top ? literal(a == StrategyHudLayout.Action.HELP ? "?" : a == StrategyHudLayout.Action.EXIT ? "×" : controller.angleLocked() ? "⊙" : "↻") : label(a);
+        int x = top ? r.x() + Math.max(0, (r.width() - font.width(caption)) / 2) : r.x() + (menuItem ? 7 : 4);
+        boolean anchor = a == StrategyHudLayout.Action.PROJECTION_MENU || a == StrategyHudLayout.Action.COLONY_MENU;
+        int ink = !enabled ? 0x586C79 : active ? ACCENT : hover ? TEXT : MUTED;
+        drawFitted(g, font, caption, x, r.y() + Math.max(0, (r.height() - 9) / 2), r.right() - x - (anchor ? 13 : 3), ink);
+        if (anchor) {
+            int ax = r.right() - 8, ay = r.y() + r.height() / 2;
+            for (int i = 0; i < 3; i++) g.fill(ax - i, ay + i - 1, ax + i + 1, ay + i, 0xFF000000 | ink);
         }
+        if (active && !top) g.fill(r.x() + 4, r.bottom() - 3, r.right() - 4, r.bottom() - 2, 0xFF67DEC2);
+    }
+    private void drawHelp(GuiGraphics g, @Nonnull Font font, int mx, int my, int width, int height) {
+        g.fill(0, 0, width, height, 0x80071019); var r = layout.help(); panel(g, r);
+        drawFitted(g, font, text("help.title"), r.x() + 12, r.y() + 10, r.width() - 36, TEXT);
+        g.drawString(font, "×", r.right() - 17, r.y() + 10, MUTED, false);
+        int rh = Math.max(9, Math.min(12, (r.height() - 42) / helpRows.size()));
+        int kw = Math.min(104, (r.width() - 24) / 3), y = r.y() + 29;
+        g.enableScissor(r.x(), r.y() + 25, r.right(), Math.max(r.y() + 25, r.bottom() - 15));
+        HelpRow hovered = null;
+        for (var row : helpRows) {
+            drawFitted(g, font, row.key(), r.x() + 12, y, kw - 8, ACCENT);
+            drawFitted(g, font, row.description(), r.x() + 12 + kw, y, r.width() - kw - 24, TEXT);
+            if (r.contains(mx, my) && my >= y && my < y + rh) hovered = row;
+            y += rh;
+        }
+        g.disableScissor();
+        drawFitted(g, font, text("help.close"), r.x() + 12, r.bottom() - 12, r.width() - 24, MUTED);
+        if (hovered != null) drawTooltip(g, font, List.of(hovered.key(), hovered.description()), mx, my, width);
+    }
+    @Nonnull private static Component modeName(BlockSelectionController s) {
+        return text(s.additive() ? "tool.additive" : "tool." + s.mode().name().toLowerCase(Locale.ROOT));
+    }
+    @Nonnull private static Component hint(BlockSelectionController s) {
+        if (ColonyWorkClient.recentNotice()) return ColonyWorkClient.notice();
+        if (ConstructionClient.recentNotice()) return ConstructionClient.notice();
+        var p = ProjectionController.instance();
+        if (p.draft() != null || p.recentStatus()) return p.status();
+        if (s.recentStatus()) return s.statusMessage();
+        if (s.working()) return Objects.requireNonNull(Component.translatable("screen.colonycamera.selection.working"));
+        if (s.selectingHeight()) return text("hint.height", s.heightLayers(), Component.translatable(s.heightOutward() ? "screen.colonycamera.selection.outward" : "screen.colonycamera.selection.inward"));
+        return text("hint." + s.mode().name().toLowerCase(Locale.ROOT));
+    }
+    @Nonnull private static Component label(StrategyHudLayout.Action a) { return text("tool." + a.name().toLowerCase(Locale.ROOT)); }
+    @Nonnull private static Component text(@Nonnull String suffix, @Nonnull Object... args) { return Objects.requireNonNull(Component.translatable("screen.colonycamera.ui." + suffix, args)); }
+    @Nonnull private static Component literal(@Nonnull String value) { return Objects.requireNonNull(Component.literal(value)); }
+    static void drawFitted(GuiGraphics g, @Nonnull Font font, @Nonnull Component text, int x, int y, int width, int color) {
+        if (width <= 0) return;
         String value = Objects.requireNonNull(text.getString());
-        if (font.width(value) > width) {
-            value = font.plainSubstrByWidth(value, Math.max(0, width - font.width("…"))) + "…";
-        }
-        graphics.drawString(font, value, x, y, color, false);
+        if (font.width(value) > width) value = font.plainSubstrByWidth(value, Math.max(0, width - font.width("…"))) + "…";
+        g.drawString(font, value, x, y, color, false);
     }
-
-    private static void drawTooltip(GuiGraphics graphics, @Nonnull Font font, List<Component> lines, int mouseX, int mouseY, int width) {
-        int wrapWidth = Math.max(1, Math.min(300, width - 24));
+    private static void drawTooltip(GuiGraphics g, @Nonnull Font font, List<Component> lines, int mx, int my, int width) {
         List<FormattedCharSequence> wrapped = new ArrayList<>();
-        for (Component line : lines) {
-            wrapped.addAll(font.split(Objects.requireNonNull(line), wrapWidth));
-        }
-        graphics.renderTooltip(font, wrapped, mouseX, mouseY);
+        for (Component line : lines) wrapped.addAll(font.split(Objects.requireNonNull(line), Math.max(1, Math.min(300, width - 24))));
+        g.renderTooltip(font, wrapped, mx, my);
     }
-
-    static void panel(GuiGraphics graphics, StrategyHudLayout.Rect bounds) {
-        if (bounds.width() < 2 || bounds.height() < 2) {
-            return;
-        }
-        graphics.fill(bounds.x() + 2, bounds.y() + 2, bounds.right() + 2, bounds.bottom() + 2, 0x35000000);
-        graphics.fill(bounds.x() + 1, bounds.y(), bounds.right() - 1, bounds.bottom(), BORDER);
-        graphics.fill(bounds.x(), bounds.y() + 1, bounds.right(), bounds.bottom() - 1, BORDER);
-        graphics.fill(bounds.x() + 1, bounds.y() + 1, bounds.right() - 1, bounds.bottom() - 1, BACKGROUND);
+    static void panel(GuiGraphics g, StrategyHudLayout.Rect r) {
+        if (r.width() < 2 || r.height() < 2) return;
+        g.fill(r.x(), r.y(), r.right(), r.bottom(), 0xFF334958);
+        g.fill(r.x() + 1, r.y() + 1, r.right() - 1, r.bottom() - 1, 0xE0101C28);
     }
-
-    private static void icon(GuiGraphics graphics, StrategyHudLayout.Action action, int x, int y, int color, boolean locked) {
-        int ink = 0xFF000000 | color;
-        switch (action) {
-            case SINGLE -> {
-                line(graphics, x + 2, y + 2, x + 12, y + 2, ink);
-                line(graphics, x + 12, y + 2, x + 12, y + 12, ink);
-                line(graphics, x + 12, y + 12, x + 2, y + 12, ink);
-                line(graphics, x + 2, y + 12, x + 2, y + 2, ink);
-                graphics.fill(x + 6, y + 6, x + 9, y + 9, ink);
-            }
-            case SIMILAR -> {
-                line(graphics, x, y + 7, x + 7, y + 3, ink);
-                line(graphics, x + 7, y + 3, x + 14, y + 7, ink);
-                line(graphics, x + 14, y + 7, x + 7, y + 11, ink);
-                line(graphics, x + 7, y + 11, x, y + 7, ink);
-            }
-            case VOLUME -> {
-                line(graphics, x, y + 4, x + 7, y, ink);
-                line(graphics, x + 7, y, x + 14, y + 4, ink);
-                line(graphics, x, y + 4, x + 7, y + 8, ink);
-                line(graphics, x + 14, y + 4, x + 7, y + 8, ink);
-                line(graphics, x, y + 4, x, y + 11, ink);
-                line(graphics, x + 14, y + 4, x + 14, y + 11, ink);
-                line(graphics, x + 7, y + 8, x + 7, y + 15, ink);
-                line(graphics, x, y + 11, x + 7, y + 15, ink);
-                line(graphics, x + 14, y + 11, x + 7, y + 15, ink);
-            }
-            case ADDITIVE -> {
-                graphics.fill(x + 6, y + 1, x + 8, y + 13, ink);
-                graphics.fill(x + 1, y + 6, x + 13, y + 8, ink);
-            }
-            case CLEAR -> {
-                line(graphics, x + 3, y + 3, x + 11, y + 11, ink);
-                line(graphics, x + 11, y + 3, x + 3, y + 11, ink);
-            }
-            case ANGLE_LOCK -> {
-                graphics.fill(x + 2, y + 7, x + 13, y + 14, ink);
-                line(graphics, x + (locked ? 4 : 9), y + 7, x + (locked ? 4 : 9), y + 2, ink);
-                line(graphics, x + (locked ? 4 : 9), y + 2, x + (locked ? 10 : 14), y + 2, ink);
-                line(graphics, x + (locked ? 10 : 14), y + 2, x + (locked ? 10 : 14), y + 5, ink);
-                graphics.fill(x + 7, y + 9, x + 8, y + 12, BACKGROUND);
-            }
-            case HELP -> {
-                line(graphics, x + 3, y + 2, x + 10, y + 2, ink);
-                line(graphics, x + 10, y + 2, x + 10, y + 6, ink);
-                line(graphics, x + 10, y + 6, x + 7, y + 8, ink);
-                graphics.fill(x + 7, y + 8, x + 8, y + 10, ink);
-                graphics.fill(x + 7, y + 12, x + 8, y + 14, ink);
-            }
-            case EXIT -> {
-                line(graphics, x + 1, y + 7, x + 13, y + 7, ink);
-                line(graphics, x + 1, y + 7, x + 6, y + 2, ink);
-                line(graphics, x + 1, y + 7, x + 6, y + 12, ink);
-            }
-            case BUILD, SAVE_PRESET -> {
-                graphics.fill(x + 2, y + 1, x + 12, y + 13, ink);
-                graphics.fill(x + 4, y + 2, x + 9, y + 5, BACKGROUND);
-                graphics.fill(x + 4, y + 8, x + 10, y + 12, BACKGROUND);
-            }
-            case LIBRARY -> {
-                for (int row = 0; row < 3; row++) {
-                    graphics.fill(x + 1, y + 2 + row * 5, x + 4, y + 5 + row * 5, ink);
-                    graphics.fill(x + 6, y + 2 + row * 5, x + 13, y + 5 + row * 5, ink);
-                }
-            }
-            case SIMILAR_LIMIT, WORK -> {
-                graphics.fill(x + 2, y + 2, x + 12, y + 14, ink);
-                for (int row = 0; row < 3; row++) graphics.fill(x + 4, y + 4 + row * 3, x + 10, y + 5 + row * 3, BACKGROUND);
-                graphics.fill(x + 5, y, x + 9, y + 3, ink);
-            }
-        }
-    }
-
-    private static void line(GuiGraphics graphics, int x, int y, int endX, int endY, int color) {
-        int dx = Math.abs(endX - x), dy = -Math.abs(endY - y);
-        int stepX = x < endX ? 1 : -1, stepY = y < endY ? 1 : -1;
-        int error = dx + dy;
-        while (true) {
-            graphics.fill(x, y, x + 1, y + 1, color);
-            if (x == endX && y == endY) {
-                return;
-            }
-            int doubled = 2 * error;
-            if (doubled >= dy) { error += dy; x += stepX; }
-            if (doubled <= dx) { error += dx; y += stepY; }
-        }
-    }
-
-    private record HelpRow(@Nonnull Component key, @Nonnull Component description) { }
+    private record HelpRow(@Nonnull Component key, @Nonnull Component description) {}
 }

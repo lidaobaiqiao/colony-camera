@@ -26,9 +26,10 @@ import java.util.*;
 @ParametersAreNonnullByDefault
 final class BuildPanel {
     private static final String[] CATEGORIES = {"all", "favorites", "colony", "natural", "structure", "mechanism", "decor"};
-    private final Map<String, Item> items = new LinkedHashMap<>();
-    private final Set<String> supported = new HashSet<>();
-    private final Map<String, String> categories = new HashMap<>();
+    // Registry entries are frozen for the client session; filters and drafts stay per window.
+    private static final Map<String, Item> items = new LinkedHashMap<>();
+    private static final Set<String> supported = new HashSet<>();
+    private static final Map<String, String> categories = new HashMap<>();
     private List<BuildCatalogFilter.Row> filtered = List.of();
     private BuildPanelLayout layout = new BuildPanelLayout(1, 1, 0);
     @Nullable private Font font;
@@ -36,9 +37,22 @@ final class BuildPanel {
     @Nullable private String selected;
     @Nonnull private String query = "", category = "all";
     private boolean open, availableOnly, categoriesOpen;
-    private int scroll, catalogRevision = -1, width;
+    private int scroll, catalogRevision = -1, width, height, bottom;
+    @Nullable dev.colony.camera.client.planning.BlockDraftState savedDraft;
+    BuildPanelLayout layout() { return layout; }
+    void blur() { EditBox box = search; if (box != null) box.setFocused(false); categoriesOpen = false; }
+    void bounds(StrategyHudLayout.Rect bounds) {
+        Font current = font; if (current == null) return;
+        layout = new BuildPanelLayout(width, height, bottom, bounds, index -> current.width(text("category." + CATEGORIES[index])));
+        EditBox box = search;
+        if (box != null) { box.setX(layout.search.x()); box.setY(layout.search.y()); box.setWidth(layout.search.width()); }
+        clampScroll();
+    }
+    void resize(Font value, int w, int h, int bottom, StrategyHudLayout.Rect bounds) {
+        resize(value, w, h, bottom); bounds(bounds);
+    }
     void resize(Font value, int w, int h, int bottom) {
-        font = value; width = w; layout = new BuildPanelLayout(w, h, bottom);
+        font = value; width = w; height = h; this.bottom = bottom; layout = new BuildPanelLayout(w, h, bottom);
         boolean focused = search != null && search.isFocused();
         EditBox box = new EditBox(value, layout.search.x(), layout.search.y(), layout.search.width(), layout.search.height(), text("search"));
         box.setMaxLength(128); box.setValue(query); box.setHint(text("search")); box.setFocused(focused);
@@ -47,12 +61,11 @@ final class BuildPanel {
     boolean isOpen() { return open; }
     boolean capturesKeyboard() { EditBox box = search; return open && box != null && box.isFocused(); }
     void open() {
-        ProjectionController.instance().cancel();
         if (items.isEmpty()) loadItems(); open = true; BuildingClient.refresh(); filter();
         EditBox box = search; if (box != null) box.setFocused(true);
     }
     void close() { open = false; categoriesOpen = false; EditBox box = search; if (box != null) box.setFocused(false); }
-    boolean blocks(double x, double y) { return open ? layout.panel.contains(x, y) : ProjectionController.instance().blockDraft() && layout.draft.contains(x, y); }
+    boolean blocks(double x, double y) { return open && layout.panel.contains(x, y); }
     private void loadItems() {
         for (var item : ForgeRegistries.ITEMS.getValues()) {
             if (!(item instanceof BlockItem blockItem)) continue;
@@ -113,16 +126,8 @@ final class BuildPanel {
             if (open && !categoriesOpen && button == GLFW.GLFW_MOUSE_BUTTON_RIGHT && index >= 0 && index < filtered.size()) toggleFavorite(filtered.get(index).id());
             return true;
         }
-        if (!open) {
-            var draft = ProjectionController.instance();
-            for (int i = 0; i < 5; i++) if (layout.draftControl(i).contains(x, y)) {
-                switch (i) { case 0 -> open(); case 1 -> draft.rotate(); case 2 -> draft.move(0, 1, 0); case 3 -> draft.move(0, -1, 0); case 4 -> draft.cancel(); default -> { } }
-                break;
-            }
-            return true;
-        }
         EditBox box = search; if (box != null) { box.setFocused(layout.search.contains(x, y)); box.mouseClicked(x, y, button); }
-        if (categoriesOpen) {
+        if (categoriesOpen || layout.horizontalCategories) {
             for (int i = 0; i < CATEGORIES.length; i++) if (layout.category(i, CATEGORIES.length).contains(x, y)) {
                 category = Objects.requireNonNull(CATEGORIES[i]); categoriesOpen = false; scroll = 0; filter(); return true;
             }
@@ -132,7 +137,7 @@ final class BuildPanel {
         if (layout.close.contains(x, y)) close();
         else if (layout.refresh.contains(x, y)) BuildingClient.refresh();
         else if (layout.available.contains(x, y)) { availableOnly = !availableOnly; scroll = 0; filter(); }
-        else if (layout.category.contains(x, y)) categoriesOpen = true;
+        else if (!layout.horizontalCategories && layout.category.contains(x, y)) categoriesOpen = true;
         else if (layout.choose.contains(x, y)) choose();
         else if (layout.favorite.contains(x, y) && selected != null) toggleFavorite(selected);
         else {
@@ -145,7 +150,7 @@ final class BuildPanel {
     }
     private void choose() {
         String id = selected; if (id == null || !supported.contains(id) || !BuildingClient.ready() || BuildingClient.pending()) return;
-        Item item = items.get(id); if (item != null && ProjectionController.instance().startBlock(item)) close();
+        Item item = items.get(id); if (item != null && ProjectionController.instance().startBlock(item)) { blur(); savedDraft = ProjectionController.instance().blockDraftState(); }
     }
     boolean scroll(double x, double y, double delta) {
         if (!open || !layout.panel.contains(x, y)) return false;
@@ -153,14 +158,18 @@ final class BuildPanel {
     }
     void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         Font current = font; if (current == null) return;
-        if (!open) { renderDraft(graphics, current, mouseX, mouseY); return; }
+        if (!open) return;
         StrategyHud.panel(graphics, layout.panel);
-        fitted(graphics, current, text("title"), layout.panel.x() + 7, layout.panel.y() + 9, layout.panel.width() - 34, 0xFFE8F1F5);
+        fitted(graphics, current, text("title"), layout.panel.x() + 7, layout.panel.y() + 9, layout.panel.width() - 58, 0xFFE8F1F5);
         button(graphics, current, layout.close, Objects.requireNonNull(Component.literal("×")), false, mouseX, mouseY);
+        button(graphics, current, layout.newWindow, Objects.requireNonNull(Component.literal("+")), false, mouseX, mouseY);
+        graphics.fill(layout.resize.x() + 2, layout.resize.y() + 6, layout.resize.right() - 1, layout.resize.bottom() - 1, 0xFF67DEC2);
         EditBox box = search; if (box != null) box.render(graphics, mouseX, mouseY, partialTick);
         button(graphics, current, layout.refresh, Objects.requireNonNull(Component.literal("↻")), false, mouseX, mouseY);
         button(graphics, current, layout.available, text("available"), availableOnly, mouseX, mouseY);
-        button(graphics, current, layout.category, text("category." + category), categoriesOpen, mouseX, mouseY);
+        if (layout.horizontalCategories) {
+            for (int i = 0; i < CATEGORIES.length; i++) button(graphics, current, layout.category(i, CATEGORIES.length), text("category." + CATEGORIES[i]), category.equals(CATEGORIES[i]), mouseX, mouseY);
+        } else button(graphics, current, layout.category, text("category." + category), categoriesOpen, mouseX, mouseY);
         graphics.enableScissor(layout.grid.x(), layout.grid.y(), layout.grid.right(), layout.grid.bottom());
         for (int i = 0; i < layout.rows * layout.columns; i++) {
             int index = scroll * layout.columns + i; if (index >= filtered.size()) break;
@@ -179,13 +188,15 @@ final class BuildPanel {
             if (index >= 0 && index < filtered.size()) tooltip(graphics, current, detailLines(filtered.get(index).id()), mouseX, mouseY);
             else if (layout.refresh.contains(mouseX, mouseY)) tooltip(graphics, current, Objects.requireNonNull(List.of(text("refresh"))), mouseX, mouseY);
             else if (layout.available.contains(mouseX, mouseY)) tooltip(graphics, current, Objects.requireNonNull(List.of(text("available_tip"))), mouseX, mouseY);
+            else if (layout.newWindow.contains(mouseX, mouseY)) tooltip(graphics, current, Objects.requireNonNull(List.of(text("new_window"))), mouseX, mouseY);
+            else if (layout.resize.contains(mouseX, mouseY)) tooltip(graphics, current, Objects.requireNonNull(List.of(text("resize"))), mouseX, mouseY);
             else if (layout.detail.contains(mouseX, mouseY) && selected != null) tooltip(graphics, current, detailLines(selected), mouseX, mouseY);
         }
     }
     private void renderDetail(GuiGraphics graphics, Font current, int mouseX, int mouseY) {
         var bounds = layout.detail; String id = selected; Item item = id == null ? null : items.get(id);
         if (item != null && id != null) {
-            fitted(graphics, current, Objects.requireNonNull(item.getDescription()), bounds.x() + 3, bounds.y() + 4, Math.max(0, bounds.width() - 28), color(status(id)));
+            fitted(graphics, current, Objects.requireNonNull(item.getDescription()), bounds.x() + 3, bounds.y() + 2, Math.max(0, bounds.width() - 28), color(status(id)));
         }
         boolean favorite = id != null && SelectionConfig.buildFavorites().contains(id);
         button(graphics, current, layout.favorite, Objects.requireNonNull(Component.literal(favorite ? "★" : "☆")), favorite, mouseX, mouseY);
@@ -208,25 +219,6 @@ final class BuildPanel {
             }
         }
         lines.add(text("item_tip")); return lines;
-    }
-    private void renderDraft(GuiGraphics graphics, Font current, int mouseX, int mouseY) {
-        var controller = ProjectionController.instance(); var draft = controller.draft(); String id = controller.blockItem();
-        if (draft == null || id == null) return; var bounds = layout.draft; StrategyHud.panel(graphics, bounds);
-        Item item = items.get(id); Component name = Objects.requireNonNull(item == null ? Component.literal(id) : item.getDescription());
-        boolean recent = BuildingClient.recentNotice() || controller.recentStatus();
-        Component notice = BuildingClient.recentNotice() ? BuildingClient.notice() : controller.status();
-        fitted(graphics, current, recent ? notice : name, bounds.x() + 6, bounds.y() + 8, layout.draftControl(0).x() - bounds.x() - 12, recent ? 0xFFFFD379 : 0xFF67DEC2);
-        String[] labels = {"palette", "rotate", "up", "down", "cancel"};
-        String[] shortcuts = {"N", "R", "+", "−", "×"};
-        for (int i = 0; i < labels.length; i++) {
-            button(graphics, current, layout.draftControl(i), Objects.requireNonNull(Component.literal(Objects.requireNonNull(shortcuts[i]))), false, mouseX, mouseY);
-        }
-        if (bounds.contains(mouseX, mouseY)) {
-            var lines = new ArrayList<Component>(); lines.add(text("placing", name)); lines.add(text("draft_hint"));
-            if (recent) lines.add(notice);
-            for (int i = 0; i < labels.length; i++) if (layout.draftControl(i).contains(mouseX, mouseY)) lines.add(text(Objects.requireNonNull(labels[i])));
-            tooltip(graphics, current, lines, mouseX, mouseY);
-        }
     }
     private void tooltip(GuiGraphics graphics, Font current, List<Component> lines, int x, int y) {
         var wrapped = new ArrayList<net.minecraft.util.FormattedCharSequence>();

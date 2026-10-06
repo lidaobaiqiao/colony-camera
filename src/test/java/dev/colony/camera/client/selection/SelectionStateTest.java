@@ -14,6 +14,21 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SelectionStateTest {
+    @Test void cycleKeepsCommittedCellsAndUsesTheLastClickToolForAppend() {
+        var state = new SelectionState(); state.apply(List.of(FIRST));
+        state.cycleMode(); assertEquals(SelectionState.Mode.SIMILAR, state.mode()); assertFalse(state.additive());
+        state.cycleMode(); assertEquals(SelectionState.Mode.VOLUME, state.mode()); assertFalse(state.additive());
+        state.cycleMode(); assertEquals(SelectionState.Mode.SIMILAR, state.mode()); assertTrue(state.additive());
+        state.apply(List.of(SECOND)); assertEquals(Set.of(FIRST, SECOND), state.cells());
+        state.cycleMode(); assertEquals(SelectionState.Mode.SINGLE, state.mode()); assertFalse(state.additive());
+        assertEquals(Set.of(FIRST, SECOND), state.cells());
+    }
+    @Test void volumeShortcutAndCycleCanAppendWithSingleInsteadOfSimilar() {
+        var state = new SelectionState(); state.toggleVolumeMode(); state.cycleMode();
+        assertEquals(SelectionState.Mode.SINGLE, state.mode()); assertTrue(state.additive());
+        state.cycleMode(); state.toggleAdditive(); state.cycleMode();
+        assertEquals(SelectionState.Mode.SINGLE, state.mode()); assertFalse(state.additive());
+    }
     private static final SelectionState.Cell FIRST = new SelectionState.Cell(-2, 4, 8);
     private static final SelectionState.Cell SECOND = new SelectionState.Cell(3, 5, -1);
     private static final SelectionState.Cell THIRD = new SelectionState.Cell(7, 6, 2);

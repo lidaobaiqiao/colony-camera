@@ -42,6 +42,19 @@ public final class SelectionState {
         additive = !additive;
     }
 
+    /** The fourth step appends using the most recent single/similar click tool. */
+    public void cycleMode() {
+        if (additive) {
+            additive = false;
+            selectMode(Mode.SINGLE);
+        } else if (mode == Mode.SINGLE) selectMode(Mode.SIMILAR);
+        else if (mode == Mode.SIMILAR) selectMode(Mode.VOLUME);
+        else {
+            mode = clickMode;
+            additive = true;
+        }
+    }
+
     public boolean additive() {
         return additive;
     }

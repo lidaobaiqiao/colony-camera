@@ -41,6 +41,7 @@ public final class ProjectionController {
     @Nullable private ProjectionRepository projectionFiles;
     @Nullable private ProjectionPlacement draft;
     @Nullable private String blockItem;
+    @Nullable private java.util.function.Consumer<UUID> blockPlacedListener;
     private boolean following;
     private boolean cursorValid;
     private int heightOffset;
@@ -56,6 +57,20 @@ public final class ProjectionController {
     public boolean blockDraft() { return blockItem != null && draft != null; }
     @Nullable public String blockItem() { return blockItem; }
     public boolean following() { return following; }
+    @Nullable public BlockDraftState blockDraftState() {
+        ProjectionPlacement current = draft; String item = blockItem;
+        return current == null || item == null ? null : new BlockDraftState(current, item, following, cursorValid, heightOffset);
+    }
+    public void restoreBlockDraft(@Nullable BlockDraftState saved) {
+        draft = saved == null ? null : saved.placement();
+        blockItem = saved == null ? null : saved.item();
+        following = saved != null && saved.following();
+        // The cursor must be checked again against the live world after a switch.
+        cursorValid = saved != null && !saved.following() && saved.cursorValid();
+        heightOffset = saved == null ? 0 : saved.heightOffset();
+        revision++;
+    }
+    public void blockPlacedListener(@Nullable java.util.function.Consumer<UUID> listener) { blockPlacedListener = listener; }
     public int revision() { return revision; }
     @Nonnull public Component status() { return status; }
     public boolean recentStatus() { return System.nanoTime() - statusTime < 6_000_000_000L; }
@@ -164,9 +179,10 @@ public final class ProjectionController {
         } catch (RuntimeException failure) { message("unsupported"); return false; }
     }
     public void placedBlock(UUID id) {
-        ProjectionPlacement current = draft; if (current == null || blockItem == null || !current.id().equals(id)) return;
-        draft = new ProjectionPlacement(Objects.requireNonNull(UUID.randomUUID()), current.preset(), current.x(), current.y(), current.z(), current.quarterTurns(), false, true);
-        following = true; cursorValid = false; revision++;
+        BlockDraftState current = blockDraftState();
+        if (current != null && current.placement().id().equals(id)) restoreBlockDraft(current.accepted(id));
+        var listener = blockPlacedListener;
+        if (listener != null) listener.accept(id);
     }
 
     private boolean begin(ProjectionPlacement placement, boolean follow) {

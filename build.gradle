@@ -51,6 +51,20 @@ minecraft {
 sourceSets.main.resources { srcDir 'src/generated/resources' }
 repositories { mavenCentral() }
 
+// Underground fixtures must not receive falling gravel or water from a random natural-world ceiling.
+tasks.matching { it.name == 'runGameTestServer' }.configureEach {
+    doFirst {
+        def testProperties = file('build/game-test-run/server.properties')
+        testProperties.parentFile.mkdirs()
+        def settings = new Properties()
+        if (testProperties.exists()) testProperties.withInputStream { settings.load(it) }
+        settings.setProperty('level-type', 'minecraft:flat')
+        settings.setProperty('generate-structures', 'false')
+        settings.setProperty('generator-settings', '{"layers":[{"block":"minecraft:bedrock","height":1},{"block":"minecraft:stone","height":3},{"block":"minecraft:dirt","height":2},{"block":"minecraft:grass_block","height":1}],"biome":"minecraft:plains","features":false,"lakes":false,"structure_overrides":[]}')
+        testProperties.withOutputStream { settings.store(it, 'Isolated colonycamera GameTest world') }
+    }
+}
+
 dependencies {
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
@@ -141,7 +155,7 @@ tasks.register('verifyArchitecture') {
         if (hudLayout =~ /(?m)^import\s+(net\.|org\.|com\.)/) {
             throw new GradleException('StrategyHudLayout must remain independent of game APIs')
         }
-        ['preset/BlockPreset', 'planning/ProjectionPlacement', 'client/screen/ProjectionPanelLayout', 'client/screen/BuildPanelLayout', 'client/screen/BuildCatalogFilter', 'client/work/WorkPanelLayout', 'worker/MiningSkill', 'resources/ReservationLedger', 'construction/ProjectOrder', 'network/ConstructionPayload'].each { model ->
+        ['preset/BlockPreset', 'planning/ProjectionPlacement', 'client/screen/ProjectionPanelLayout', 'client/screen/BuildPanelLayout', 'client/screen/BuildCatalogFilter', 'client/input/PointerGesture', 'client/screen/WindowGeometry', 'client/planning/BlockDraftState', 'client/work/TechnologyPanelLayout', 'client/work/WorkPanelLayout', 'worker/MiningSkill', 'resources/ReservationLedger', 'construction/ProjectOrder', 'network/ConstructionPayload'].each { model ->
             def text = file("src/main/java/dev/colony/camera/${model}.java").getText('UTF-8')
             if (text =~ /(?m)^import\s+(net\.|org\.|com\.)/) {
                 throw new GradleException("${model} must remain independent of game APIs")
@@ -175,6 +189,12 @@ tasks.register('verifyModJar') {
                     'dev/colony/camera/client/screen/StrategyScreen.class',
                     'dev/colony/camera/client/screen/StrategyHud.class',
                     'dev/colony/camera/client/screen/StrategyHudLayout.class',
+                    'dev/colony/camera/client/input/PointerGesture.class',
+                    'dev/colony/camera/client/planning/BlockDraftState.class',
+                    'dev/colony/camera/client/screen/BuildWindows.class',
+                    'dev/colony/camera/client/screen/WindowGeometry.class',
+                    'dev/colony/camera/client/work/TechnologyPanel.class',
+                    'dev/colony/camera/client/work/TechnologyPanelLayout.class',
                     'dev/colony/camera/client/screen/ProjectionPanel.class',
                     'dev/colony/camera/client/screen/ProjectionPanelLayout.class',
                     'dev/colony/camera/client/preset/MinecraftPresetAdapter.class',

@@ -279,8 +279,16 @@ public final class BlockSelectionController {
     }
 
     public void toggleAdditive() {
+        cancelPointerInput();
         state.toggleAdditive();
         updateDescription();
+    }
+
+    public void cycleMode() {
+        cancelPointerInput();
+        state.cycleMode();
+        updateDescription();
+        setStatus("screen.colonycamera.selection.mode_changed", description);
     }
 
     public boolean additive() {

@@ -11,6 +11,7 @@ public final class SelectionConfig {
     @Nonnull public static final ForgeConfigSpec SPEC;
     private static final ForgeConfigSpec.IntValue SIMILAR_LIMIT;
     private static final ForgeConfigSpec.ConfigValue<java.util.List<? extends String>> BUILD_FAVORITES;
+    private static final ForgeConfigSpec.ConfigValue<java.util.List<? extends String>> BUILD_WINDOWS;
 
     static {
         var builder = new ForgeConfigSpec.Builder();
@@ -18,6 +19,8 @@ public final class SelectionConfig {
                 .defineInRange("similarSelectionLimit", DEFAULT_SIMILAR_LIMIT, 1, MAX_SIMILAR_LIMIT);
         BUILD_FAVORITES = builder.comment("Favorite block item IDs in the construction palette.")
                 .defineListAllowEmpty("buildFavorites", java.util.List.of(), value -> value instanceof String id && id.matches("[a-z0-9_.-]+:[a-z0-9_./-]+") && id.length() <= 256);
+        BUILD_WINDOWS = builder.comment("Construction window rectangles, normalized to the usable viewport: x,y,width,height (0..10000).")
+                .defineListAllowEmpty("buildWindows", java.util.List.of(), value -> value instanceof String rectangle && rectangle.matches("[0-9]{1,5},[0-9]{1,5},[0-9]{1,5},[0-9]{1,5}"));
         SPEC = Objects.requireNonNull(builder.build());
     }
 
@@ -25,6 +28,11 @@ public final class SelectionConfig {
 
     public static int similarLimit() { return Objects.requireNonNull(SIMILAR_LIMIT.get()); }
     public static java.util.Set<String> buildFavorites() { return new java.util.LinkedHashSet<>(BUILD_FAVORITES.get()); }
+    public static java.util.List<String> buildWindows() { return java.util.List.copyOf(BUILD_WINDOWS.get()); }
+    public static void buildWindows(java.util.List<String> values) {
+        var previous = BUILD_WINDOWS.get(); BUILD_WINDOWS.set(java.util.List.copyOf(values));
+        try { SPEC.save(); } catch (RuntimeException failure) { BUILD_WINDOWS.set(previous); throw failure; }
+    }
     public static void favorite(String id) {
         var previous = BUILD_FAVORITES.get(); var values = buildFavorites();
         if (!values.remove(id) && values.size() < 256) values.add(id);

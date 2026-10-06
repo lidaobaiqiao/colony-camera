@@ -123,7 +123,16 @@ public final class WorkerWaterGameTests {
             ColonyJob job = floorJob[0];
             helper.assertTrue(job != null, "Waiting for water to spread after mining the dam");
             job = Objects.requireNonNull(job);
-            helper.assertTrue(job.finished(), "Mining stalled after opening water: " + job.reason + ", " + worker.position());
+            var navigation = worker.getNavigation();
+            var route = navigation.getPath();
+            String routeDetails = route == null ? "none" : route.getNextNodeIndex() + "/" + route.getNodeCount()
+                    + ", next=" + (route.isDone() ? "done" : route.getNextNodePos())
+                    + ", first=" + route.getNode(0).asBlockPos();
+            helper.assertTrue(job.finished(), "Mining stalled after opening water: " + job.reason + ", " + worker.position()
+                    + ", water=" + worker.isInWater() + ", target=" + worker.getNavigation().getTargetPos()
+                    + ", route=" + routeDetails + ", delta=" + worker.getDeltaMovement()
+                    + ", wanted=" + worker.getMoveControl().getWantedX() + "/" + worker.getMoveControl().getWantedY()
+                    + "/" + worker.getMoveControl().getWantedZ());
             helper.assertTrue(waded[0] && worker.getX() < helper.absolutePos(new BlockPos(6, 1, 5)).getX(),
                     "Worker bypassed the flowing-water route: waded=" + waded[0] + ", pos=" + worker.position());
             helper.assertTrue(worker.miningXp() == 2 && worker.getOffhandItem().getDamageValue() == 2,

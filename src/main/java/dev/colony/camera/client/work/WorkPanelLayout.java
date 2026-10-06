@@ -7,18 +7,19 @@ import java.util.Objects;
 
 /** Geometry shared by the embedded and station screens, in scaled GUI pixels. */
 public final class WorkPanelLayout {
-    public static final int ROW_HEIGHT = 22;
+    public static final int ROW_HEIGHT = 27;
     @Nonnull private final StrategyHudLayout.Rect bounds;
     @Nonnull private final StrategyHudLayout.Rect list;
     @Nonnull private final StrategyHudLayout.Rect detail;
     @Nonnull private final StrategyHudLayout.Rect close;
     private final boolean usable;
 
-    public WorkPanelLayout(int width, int height) {
+    public WorkPanelLayout(int width, int height) { this(width, height, 209); }
+    public WorkPanelLayout(int width, int height, int desiredHeight) {
         if (width < 1 || height < 1) throw new IllegalArgumentException("Viewport must be positive");
         int margin = Math.min(8, Math.min(width, height) / 8);
         int panelWidth = Math.min(540, width - margin * 2);
-        int panelHeight = Math.min(300, height - margin * 2);
+        int panelHeight = Math.min(desiredHeight, height - margin * 2);
         bounds = new StrategyHudLayout.Rect((width - panelWidth) / 2, (height - panelHeight) / 2, panelWidth, panelHeight);
         usable = panelWidth >= 260 && panelHeight >= 156;
         int closeSize = Math.min(18, Math.min(panelWidth, panelHeight));
@@ -38,7 +39,7 @@ public final class WorkPanelLayout {
     @Nonnull public StrategyHudLayout.Rect close() { return close; }
     public int rows() { return list.height() / ROW_HEIGHT; }
 
-    @Nonnull public StrategyHudLayout.Rect tab(int index) { return divided(index, 3, bounds.y() + 25, 18); }
+    @Nonnull public StrategyHudLayout.Rect tab(int index) { return divided(index, 5, bounds.y() + 25, 18); }
     @Nonnull public StrategyHudLayout.Rect creation(int index) { return divided(index, 2, bounds.y() + 47, 18); }
     @Nonnull public StrategyHudLayout.Rect action(int index, int count) { return divided(index, count, bounds.bottom() - 39, 21); }
     @Nonnull public StrategyHudLayout.Rect station() { return divided(0, 1, bounds.y() + 47, 18); }

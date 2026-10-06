@@ -7,6 +7,8 @@ import javax.annotation.Nullable;
 import javax.annotation.ParametersAreNonnullByDefault;
 import java.util.BitSet;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -28,7 +30,8 @@ public final class ColonyJob {
     public int requested = 1;
     @Nonnull public final BitSet completed = new BitSet();
     public int done;
-    public int cursor;
+    /** A bounded search resumes by original target index, independently for each worker. */
+    @Nonnull public final Map<UUID, Integer> miningCursors = new LinkedHashMap<>();
     @Nonnull public String reason = "queued";
     public boolean paused;
     public boolean cancelled;

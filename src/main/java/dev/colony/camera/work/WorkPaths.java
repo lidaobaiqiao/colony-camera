@@ -30,7 +30,7 @@ public final class WorkPaths {
     public static boolean arrive(ServerLevel level, WorkerEntity worker, BlockPos stand) {
         if (!ConstructionManager.standable(level, stand)) return false;
         if (worker.distanceToSqr(GroundResources.bottom(stand)) <= 1.2) { worker.getNavigation().stop(); return true; }
-        if (worker.getNavigation().isDone() || level.getGameTime() % 20 == 0) {
+        if (worker.getNavigation().isDone() || !stand.equals(worker.getNavigation().getTargetPos())) {
             var path = GroundResources.path(level, worker, stand); if (path != null) GroundResources.follow(level, worker, path);
         }
         return false;

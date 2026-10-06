@@ -60,6 +60,7 @@ final class ProjectionPanel {
     boolean modal() { return mode != Mode.CLOSED; }
     void close() { mode = Mode.CLOSED; name = null; rebuildControls(); }
     void library() { controller.reloadLibrary(); ConstructionClient.refresh(); mode = Mode.LIBRARY; name = null; rebuildControls(); }
+    void openPresets() { projectsTab = constructionTab = false; selected = scroll = 0; library(); }
     void saveDialog() {
         var selection = StrategyCameraController.instance().selection();
         if (selection.working() || selection.selectingHeight() || selection.selectionCount() == 0) {

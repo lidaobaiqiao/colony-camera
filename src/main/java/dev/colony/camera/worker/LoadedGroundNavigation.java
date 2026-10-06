@@ -29,6 +29,20 @@ public final class LoadedGroundNavigation extends GroundPathNavigation {
         return mob.isInWater() ? new Vec3(mob.getX(), Mth.floor(mob.getY() + 0.5), mob.getZ())
                 : Objects.requireNonNull(super.getTempMobPos());
     }
+    @Override protected void followThePath() {
+        Path route = path;
+        if (route == null || route.isDone()) return;
+        int finalIndex = route.getNodeCount() - 1;
+        boolean finalStep = route.getNextNodeIndex() == finalIndex;
+        super.followThePath();
+        // Vanilla's broad waypoint tolerance can finish before a work stand has line of sight.
+        // Restarting there targets the previous cell first, causing a short back-and-forth loop.
+        if (finalStep && path == route && route.isDone()) {
+            Vec3 end = Objects.requireNonNull(route.getEntityPosAtNode(Objects.requireNonNull(mob), finalIndex));
+            double dx = mob.getX() - end.x, dz = mob.getZ() - end.z;
+            if (dx * dx + dz * dz > 0.01) route.setNextNodeIndex(finalIndex);
+        }
+    }
     @Override @Nullable protected Path createPath(Set<BlockPos> targets, int regionExtra, boolean above, int reach, float distance) {
         if (!(level instanceof ServerLevel server)) return null;
         BlockPos origin = Objects.requireNonNull(mob.blockPosition());

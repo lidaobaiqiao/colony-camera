@@ -401,7 +401,7 @@ public final class ConstructionManager extends SavedData {
         } else { release(worker); reallocate = true; }
     }
     private void move(ServerLevel level, WorkerEntity worker, BlockPos target) {
-        if (!worker.getNavigation().isDone()) return;
+        if (!worker.getNavigation().isDone() && target.equals(worker.getNavigation().getTargetPos())) return;
         if (!usePathBudget()) return;
         Path path = GroundResources.path(level, worker, target);
         if (path != null) GroundResources.follow(level, worker, path);

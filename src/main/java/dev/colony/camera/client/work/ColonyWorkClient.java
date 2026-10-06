@@ -35,12 +35,19 @@ public final class ColonyWorkClient {
     public record Job(@Nonnull UUID id, @Nonnull String kind, @Nonnull String name, int priority,
                       int done, int total, @Nonnull String reason, boolean paused, boolean cancelled, boolean finished,
                       long sequence, @Nullable BlockPos origin, boolean supply) {}
-    public record Worker(@Nonnull UUID id, int miningLevel, int xp, @Nonnull String tool) {}
+    public record Worker(@Nonnull UUID id, int miningLevel, int xp, @Nonnull String tool,
+                         @Nullable UUID job, @Nullable UUID project) {}
     public record Station(@Nonnull BlockPos pos, boolean research) {}
     public record Ingredient(@Nonnull String item, @Nonnull String name, int count, @Nonnull List<String> alternatives) {}
     public record Recipe(@Nonnull String id, @Nonnull String name, @Nonnull String output, int count,
                          int requiredTier, boolean unlocked, @Nonnull List<Ingredient> ingredients) {}
     public record Tech(int tier, @Nonnull String name, int nextTier, @Nonnull List<Ingredient> costs, int researchTicks, boolean readOnly) {}
+
+    public record TechNode(int tier, @Nonnull String name, int requiredTier, int researchTicks, @Nonnull List<Ingredient> costs) {}
+    @Nonnull private static List<TechNode> techNodes = Objects.requireNonNull(List.of());
+    private static long noticeTime;
+    @Nonnull public static List<TechNode> techNodes() { return techNodes; }
+    public static boolean recentNotice() { return noticeTime != 0 && System.nanoTime() - noticeTime < 4_000_000_000L; }
 
     @Nonnull private static List<Job> jobs = Objects.requireNonNull(List.of());
     @Nonnull private static List<Worker> workers = Objects.requireNonNull(List.of());
@@ -107,7 +114,7 @@ public final class ColonyWorkClient {
         catch (IllegalArgumentException large) { localNotice("selection_large"); return; }
         WorkNetwork.CHANNEL.sendToServer(new WorkNetwork.Request(action, json));
     }
-    private static void localNotice(String suffix) { notice = text("colonycamera.work." + suffix); }
+    private static void localNotice(String suffix) { notice = text("colonycamera.work." + suffix); noticeTime = System.nanoTime(); }
 
     @SubscribeEvent public static void receive(WorkNetwork.SnapshotEvent event) {
         var level = Minecraft.getInstance().level;
@@ -127,7 +134,9 @@ public final class ColonyWorkClient {
             for (JsonElement entry : array(root, "workers")) {
                 JsonObject worker = Objects.requireNonNull(entry.getAsJsonObject());
                 newWorkers.add(new Worker(Objects.requireNonNull(UUID.fromString(string(worker, "id", ""))), integer(worker, "miningLevel", 0),
-                        integer(worker, "xp", 0), string(worker, "tool", "")));
+                        integer(worker, "xp", 0), string(worker, "tool", ""),
+                        worker.has("job") ? UUID.fromString(string(worker, "job", "")) : null,
+                        worker.has("project") ? UUID.fromString(string(worker, "project", "")) : null));
             }
             List<Station> newStations = new ArrayList<>();
             for (JsonElement entry : array(root, "stations")) {
@@ -140,26 +149,34 @@ public final class ColonyWorkClient {
                 newRecipes.add(new Recipe(string(recipe, "id", ""), string(recipe, "name", ""), string(recipe, "output", ""),
                         integer(recipe, "count", 1), integer(recipe, "requiredTier", 0), bool(recipe, "unlocked", false), ingredients(recipe, "ingredients")));
             }
-            Tech newTech = tech;
+            Tech newTech = tech; List<TechNode> newNodes = new ArrayList<>();
             if (root.has("tech") && root.get("tech").isJsonObject()) {
                 JsonObject value = Objects.requireNonNull(root.getAsJsonObject("tech")); int tier = integer(value, "tier", 0);
                 newTech = new Tech(tier, string(value, "name", "colonycamera.work.tier." + tier), integer(value, "nextTier", -1),
                         ingredients(value, "costs"), integer(value, "researchTicks", 0), bool(value, "readOnly", false));
             }
-            Component newNotice = notice;
+            if (root.has("tech")) {
+                JsonObject value = Objects.requireNonNull(root.getAsJsonObject("tech"));
+                for (JsonElement entry : array(value, "nodes")) {
+                    JsonObject node = Objects.requireNonNull(entry.getAsJsonObject());
+                    newNodes.add(new TechNode(integer(node, "tier", 0), string(node, "name", ""), integer(node, "requiredTier", -1),
+                            integer(node, "researchTicks", 0), ingredients(node, "costs")));
+                }
+            }
+            Component newNotice = notice; boolean hasNotice = false;
             if (root.has("notice") && !root.get("notice").isJsonNull()) {
                 JsonElement value = Objects.requireNonNull(root.get("notice"));
-                if (value.isJsonPrimitive() && !value.getAsString().isBlank()) newNotice = text(Objects.requireNonNull(value.getAsString()));
+                if (value.isJsonPrimitive() && !value.getAsString().isBlank()) { newNotice = text(Objects.requireNonNull(value.getAsString())); hasNotice = true; }
                 else if (value.isJsonObject()) {
                     JsonObject message = Objects.requireNonNull(value.getAsJsonObject()); List<Object> args = new ArrayList<>();
                     for (JsonElement argument : array(message, "args")) args.add(argument.getAsString());
                     String key = string(message, "key", "");
-                    if (!key.isBlank()) newNotice = Objects.requireNonNull(Component.translatable(key, Objects.requireNonNull(args.toArray())));
+                    if (!key.isBlank()) { newNotice = Objects.requireNonNull(Component.translatable(key, Objects.requireNonNull(args.toArray()))); hasNotice = true; }
                 }
             }
             jobs = Objects.requireNonNull(List.copyOf(newJobs)); workers = Objects.requireNonNull(List.copyOf(newWorkers));
             stations = Objects.requireNonNull(List.copyOf(newStations)); recipes = Objects.requireNonNull(List.copyOf(newRecipes));
-            tech = newTech; notice = newNotice; currentLevel = level;
+            tech = newTech; techNodes = Objects.requireNonNull(List.copyOf(newNodes)); notice = newNotice; if (hasNotice) noticeTime = System.nanoTime(); currentLevel = level;
         } catch (RuntimeException malformed) {
             localNotice("snapshot_invalid");
         }
@@ -176,7 +193,7 @@ public final class ColonyWorkClient {
         if (event.phase == TickEvent.Phase.END && level != currentLevel) {
             jobs = Objects.requireNonNull(List.of()); workers = Objects.requireNonNull(List.of()); stations = Objects.requireNonNull(List.of());
             recipes = Objects.requireNonNull(List.of()); tech = new Tech(0, "colonycamera.work.tier.0", 1, Objects.requireNonNull(List.of()), 0, false);
-            notice = Objects.requireNonNull(Component.empty()); currentLevel = level;
+            notice = Objects.requireNonNull(Component.empty()); noticeTime = 0; techNodes = Objects.requireNonNull(List.of()); currentLevel = level;
         }
     }
 

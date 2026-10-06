@@ -68,6 +68,8 @@ public final class GroundResources {
         BlockPos target = Objects.requireNonNull(planned.getTarget());
         if (!loaded(level, target) || !searchAreaLoaded(level, worker)) return false;
         var navigation = worker.getNavigation();
+        // Re-submitting moveTo for the same running route resets vanilla's stationary-worker timer.
+        if (!navigation.isDone() && target.equals(navigation.getTargetPos())) return true;
         Path route = navigation.createPath(target, 0);
         return route != null && route.canReach() && navigation.moveTo(route, 1.0);
     }

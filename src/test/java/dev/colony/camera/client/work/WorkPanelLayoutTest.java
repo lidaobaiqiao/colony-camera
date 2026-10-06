@@ -13,7 +13,7 @@ class WorkPanelLayoutTest {
         for (int[] viewport : new int[][] {{320, 180}, {480, 270}, {640, 360}, {1920, 1080}}) {
             var layout = new WorkPanelLayout(viewport[0], viewport[1]); assertTrue(layout.usable()); assertTrue(layout.rows() > 0);
             List<StrategyHudLayout.Rect> controls = new ArrayList<>(); controls.add(layout.close());
-            for (int i = 0; i < 3; i++) controls.add(layout.tab(i));
+            for (int i = 0; i < 5; i++) controls.add(layout.tab(i));
             for (int i = 0; i < 2; i++) controls.add(layout.creation(i));
             for (int i = 0; i < 5; i++) controls.add(layout.action(i, 5));
             for (int i = 0; i < layout.rows(); i++) controls.add(layout.row(i));
@@ -47,7 +47,7 @@ class WorkPanelLayoutTest {
     @Test void invalidDimensionsAndControlIndicesAreRejected() {
         assertThrows(IllegalArgumentException.class, () -> new WorkPanelLayout(0, 180));
         var layout = new WorkPanelLayout(320, 180);
-        assertThrows(IllegalArgumentException.class, () -> layout.tab(3));
+        assertThrows(IllegalArgumentException.class, () -> layout.tab(5));
         assertThrows(IllegalArgumentException.class, () -> layout.action(0, 0));
     }
     private static void assertInside(StrategyHudLayout.Rect rect, int width, int height) {

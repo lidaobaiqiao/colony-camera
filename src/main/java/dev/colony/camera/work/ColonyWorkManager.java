@@ -155,7 +155,15 @@ public final class ColonyWorkManager extends SavedData {
         if (!job.runnable() || readOnly()) return;
         var station = job.station;
         if (station != null && claimed.contains(station)) { job.reason = "queued"; return; }
-        for (WorkerEntity worker : workers) {
+        job.miningCursors.keySet().removeIf(id -> workers.stream().noneMatch(worker -> worker.getUUID().equals(id)));
+        var candidates = new ArrayList<>(workers);
+        // Existing miners claim their unfinished units before newly free workers can take those blocks.
+        candidates.sort(Comparator.comparingInt(worker -> {
+            WorkTask current = Objects.requireNonNull(worker).workTask;
+            return current != null && current.job.equals(job.id) && current.deadline >= time ? 0 : 1;
+        }));
+        String activeReason = "";
+        for (WorkerEntity worker : candidates) {
             if (assigned.contains(worker.getUUID()) || !job.owner.equals(worker.owner())) continue;
             WorkTask next = switch (job.kind) {
                 case MINE -> MiningService.assign(level, worker, job, claimed, ledger, time);
@@ -164,16 +172,18 @@ public final class ColonyWorkManager extends SavedData {
             };
             if (next == null) continue;
             WorkTask previous = worker.workTask;
-            if (previous != null && previous.job.equals(next.job) && previous.targetIndex == next.targetIndex
+            if (previous != null && previous.deadline >= time && previous.job.equals(next.job) && previous.targetIndex == next.targetIndex
                     && previous.stand.equals(next.stand) && Objects.equals(previous.source, next.source)
                     && Objects.equals(previous.destination, next.destination) && previous.toolPickup == next.toolPickup) {
                 next.progress = previous.progress; next.lastWorked = previous.lastWorked; next.deadline = previous.deadline;
             } else worker.getNavigation().stop();
             worker.assignment = null; worker.workTask = next; assigned.add(worker.getUUID());
+            activeReason = job.reason;
             if (job.kind == ColonyJob.Kind.MINE) claimed.add(job.targets.get(next.targetIndex));
             // A station is a single work position; disjoint stations may run concurrently.
             if (job.kind == ColonyJob.Kind.CRAFT || job.kind == ColonyJob.Kind.RESEARCH) { claimed.add(Objects.requireNonNull(job.station)); break; }
         }
+        if (!activeReason.isEmpty()) job.reason = activeReason;
         setDirty();
     }
     public void tick(ServerLevel level, List<WorkerEntity> workers, ReservationLedger ledger) {
@@ -216,7 +226,11 @@ public final class ColonyWorkManager extends SavedData {
         root.add("jobs", list); JsonArray workers = new JsonArray();
         for (WorkerEntity worker : ConstructionManager.get(Objects.requireNonNull(player.serverLevel())).workers(Objects.requireNonNull(player.serverLevel()))) if (player.getUUID().equals(worker.owner())) {
             JsonObject entry = new JsonObject(); entry.addProperty("id", worker.getUUID().toString()); entry.addProperty("miningLevel", worker.miningLevel()); entry.addProperty("xp", worker.miningXp());
-            entry.addProperty("tool", String.valueOf(net.minecraftforge.registries.ForgeRegistries.ITEMS.getKey(worker.getOffhandItem().getItem()))); workers.add(entry);
+            entry.addProperty("tool", String.valueOf(net.minecraftforge.registries.ForgeRegistries.ITEMS.getKey(worker.getOffhandItem().getItem())));
+            var task = worker.workTask; var assignment = worker.assignment;
+            if (task != null) entry.addProperty("job", task.job.toString());
+            if (assignment != null) entry.addProperty("project", assignment.project.toString());
+            workers.add(entry);
         }
         root.add("workers", workers); JsonArray stations = new JsonArray();
         for (BlockPos pos : WorkStations.owned(Objects.requireNonNull(player.serverLevel()), Objects.requireNonNull(player.getUUID())).stream().limit(128).toList()) {

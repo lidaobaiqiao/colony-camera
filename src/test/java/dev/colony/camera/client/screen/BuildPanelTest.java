@@ -28,7 +28,7 @@ class BuildPanelTest {
     }
     @Test void gridCentersAndRightBottomEdgesResolveToTheRenderedItemAfterScrolling() {
         for (int[] size : new int[][] {{320, 180}, {400, 225}, {640, 360}, {854, 480}}) {
-            var layout = new BuildPanelLayout(size[0], size[1], size[1] - 68);
+            var layout = new BuildPanelLayout(size[0], size[1], new StrategyHudLayout(size[0], size[1]).dock().y() - 4);
             assertTrue(layout.rows > 0, "The smallest supported GUI must still show buildable blocks");
             for (int i = 0; i < layout.columns * layout.rows; i++) {
                 var cell = layout.cell(i);
@@ -42,7 +42,7 @@ class BuildPanelTest {
         for (int[] size : new int[][] {{1, 1}, {16, 7}, {100, 80}, {320, 180}, {480, 270}, {854, 480}}) {
             var layout = new BuildPanelLayout(size[0], size[1], Math.max(0, size[1] - 68));
             var controls = new java.util.ArrayList<>(List.of(layout.panel, layout.grid, layout.search, layout.category, layout.detail, layout.choose, layout.favorite, layout.available, layout.close, layout.refresh, layout.draft));
-            for (int i = 0; i < 5; i++) controls.add(layout.draftControl(i));
+            controls.add(layout.title); controls.add(layout.resize); controls.add(layout.newWindow);
             for (int i = 0; i < 7; i++) controls.add(layout.category(i, 7));
             for (var rect : controls) {
                 assertTrue(rect.width() >= 0 && rect.height() >= 0 && rect.x() >= 0 && rect.y() >= 0 && rect.right() <= size[0] && rect.bottom() <= size[1], rect.toString());
@@ -58,12 +58,6 @@ class BuildPanelTest {
             assertTrue(layout.panel.bottom() <= hud.dock().y());
             assertTrue(layout.draft.height() <= 26);
             assertTrue(layout.draft.bottom() < hud.dock().y());
-            for (int i = 0; i < 5; i++) {
-                var control = layout.draftControl(i);
-                assertTrue(control.x() >= layout.draft.x() && control.right() <= layout.draft.right());
-                assertTrue(control.y() >= layout.draft.y() && control.bottom() <= layout.draft.bottom());
-                if (i > 0) assertEquals(layout.draftControl(i - 1).right(), control.x());
-            }
         }
     }
     @Test void categoryPopupFitsInsideTheSidebarAndCannotOverlapItsTrigger() {

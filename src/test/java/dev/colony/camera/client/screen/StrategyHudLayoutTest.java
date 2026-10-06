@@ -7,13 +7,37 @@ import java.util.ArrayList;
 import static org.junit.jupiter.api.Assertions.*;
 
 class StrategyHudLayoutTest {
+    @Test void menuHeaderConsumesHitsOverUnderlyingCameraControls() {
+        var layout = new StrategyHudLayout(320, 180);
+        var menu = StrategyHudLayout.Menu.COLONY;
+        var r = layout.menu(menu);
+        assertNull(layout.actionAt(r.right() - 8, r.y() + 8, menu));
+        for (var c : layout.menuControls(menu)) {
+            var cell = c.bounds();
+            assertEquals(c.action(), layout.actionAt(cell.x() + 2, cell.y() + 2, menu));
+        }
+    }
+    @Test void longTranslatedButtonsShrinkToKeepBothGroupsInsideAndTheGapClear() {
+        var layout = new StrategyHudLayout(320, 180, action -> 200);
+        assertInside(layout, 320, 180);
+        assertTrue(layout.rightDock().x() - layout.leftDock().right() >= 50);
+        assertFalse(layout.blocksWorld(layout.placement().x() + 1, layout.placement().y() + 5, false, false, false));
+    }
+    @Test void progressCannotOverfillOrReverseItsTrackWithStaleSnapshots() {
+        assertEquals(1, StrategyHudLayout.progress(412, 400));
+        assertEquals(0, StrategyHudLayout.progress(-12, 400));
+        assertEquals(0, StrategyHudLayout.progress(12, 0));
+        assertEquals(0.5, StrategyHudLayout.progress(200, 400));
+    }
     @Test
-    void allThreeSelectionToolsHaveSeparateEntriesWithoutCoveringTheSceneCenter() {
+    void commandGroupsLeaveTheCenterFreeAndSelectionToolsHaveNoPermanentButtons() {
         StrategyHudLayout layout = new StrategyHudLayout(320, 180);
-        assertEquals(StrategyHudLayout.Action.SINGLE, layout.controls().get(0).action());
-        assertEquals(StrategyHudLayout.Action.SIMILAR, layout.controls().get(1).action());
-        assertEquals(StrategyHudLayout.Action.VOLUME, layout.controls().get(2).action());
-        assertEquals(1, layout.controls().stream().filter(c -> c.action() == StrategyHudLayout.Action.SIMILAR_LIMIT).count());
+        assertEquals(StrategyHudLayout.Action.BUILD, layout.controls().get(0).action());
+        assertEquals(StrategyHudLayout.Action.PROJECTION_MENU, layout.controls().get(1).action());
+        assertEquals(8, layout.controls().size());
+        assertNull(layout.actionAt(160, layout.dock().y() + 10));
+        assertFalse(layout.blocksWorld(160, layout.dock().y() + 10, false));
+        assertEquals(StrategyHudLayout.Action.SIMILAR_LIMIT, layout.menuControls(StrategyHudLayout.Menu.PROJECTION).get(3).action());
         assertFalse(layout.blocksWorld(160, 90, false));
     }
 
@@ -57,12 +81,13 @@ class StrategyHudLayoutTest {
     @Test
     void adjoiningToolsHaveUnambiguousEdges() {
         StrategyHudLayout layout = new StrategyHudLayout(320, 180);
-        for (int i = 0; i < 9; i++) {
+        for (int i : new int[] {0, 2, 3}) {
             StrategyHudLayout.Control current = layout.controls().get(i);
             StrategyHudLayout.Control next = layout.controls().get(i + 1);
-            assertEquals(current.bounds().right(), next.bounds().x());
+            assertTrue(current.bounds().right() <= next.bounds().x());
             assertEquals(current.action(), layout.actionAt(current.bounds().right() - 0.01, current.bounds().y() + 5));
-            assertEquals(next.action(), layout.actionAt(current.bounds().right(), current.bounds().y() + 5));
+            assertNull(layout.actionAt(current.bounds().right(), current.bounds().y() + 5));
+            assertEquals(next.action(), layout.actionAt(next.bounds().x(), next.bounds().y() + 5));
         }
     }
 
@@ -121,7 +146,11 @@ class StrategyHudLayoutTest {
 
     private static void assertInside(StrategyHudLayout layout, int width, int height) {
         var rectangles = new ArrayList<>(layout.controls().stream().map(control -> control.bounds()).toList());
-        rectangles.addAll(java.util.List.of(layout.selection(), layout.dock(), layout.hint(), layout.help(), layout.similarLimitDialog()));
+        rectangles.addAll(java.util.List.of(layout.selection(), layout.leftDock(), layout.rightDock(), layout.placement(), layout.hint(), layout.help(), layout.similarLimitDialog()));
+        for (var menu : new StrategyHudLayout.Menu[] {StrategyHudLayout.Menu.PROJECTION, StrategyHudLayout.Menu.COLONY}) {
+            rectangles.add(layout.menu(menu));
+            rectangles.addAll(layout.menuControls(menu).stream().map(c -> c.bounds()).toList());
+        }
         for (StrategyHudLayout.Rect rect : rectangles) {
             assertTrue(rect.x() >= 0 && rect.y() >= 0 && rect.width() >= 0 && rect.height() >= 0, rect.toString());
             assertTrue(rect.right() <= width && rect.bottom() <= height, rect.toString());

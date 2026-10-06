@@ -44,7 +44,7 @@ final class StrategyHud {
                 new HelpRow(Objects.requireNonNull(Component.literal("Shift")), text("help.speed")),
                 new HelpRow(CameraKeyMappings.addSelectionKeyName(), text("help.additive")),
                 new HelpRow(CameraKeyMappings.volumeSelectionKeyName(), text("help.mode")),
-                new HelpRow(CameraKeyMappings.clearSelectionKeyName(), text("help.clear")),
+                new HelpRow(clearBinding(), text("help.clear")),
                 new HelpRow(Objects.requireNonNull(Component.empty().append(CameraKeyMappings.toggleKeyName()).append(" / Esc")), text("help.exit")));
     }
 
@@ -216,13 +216,19 @@ final class StrategyHud {
     }
 
     @Nonnull
+    private Component clearBinding() {
+        return Objects.requireNonNull(Component.empty().append(text("mouse.right_click")).append(" / ")
+                .append(CameraKeyMappings.clearSelectionKeyName()));
+    }
+
+    @Nonnull
     private Component binding(StrategyHudLayout.Action action) {
         return switch (action) {
             case SIMILAR -> text("mouse.left.short");
             case SIMILAR_LIMIT -> Objects.requireNonNull(Component.literal(Objects.requireNonNull(Integer.toString(dev.colony.camera.config.SelectionConfig.similarLimit()))));
             case VOLUME -> CameraKeyMappings.volumeSelectionKeyName();
             case ADDITIVE -> CameraKeyMappings.addSelectionKeyName();
-            case CLEAR -> CameraKeyMappings.clearSelectionKeyName();
+            case CLEAR -> clearBinding();
             case ANGLE_LOCK -> CameraKeyMappings.angleLockKeyName();
             case EXIT -> CameraKeyMappings.toggleKeyName();
             case HELP -> Objects.requireNonNull(Component.empty());

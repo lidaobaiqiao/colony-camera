@@ -135,6 +135,32 @@ public final class SweepGameTests {
         manager.update(Objects.requireNonNull(scene.player.getUUID()), job.id, "cancel", 0); helper.succeed();
     }
 
+    @GameTest(template = "construction", timeoutTicks = 20, batch = "sweep_regression")
+    public static void anIdleWorkerCannotCompleteASweepWhileAnotherCarriesItsCargo(GameTestHelper helper) {
+        Scene scene = scene(helper);
+        ColonyJob job = Objects.requireNonNull(standalone(helper, scene));
+        WorkerEntity idle = Objects.requireNonNull(ColonyEntities.WORKER.get().create(Objects.requireNonNull(helper.getLevel())));
+        idle.owner(Objects.requireNonNull(scene.player.getUUID()));
+        BlockPos pos = Objects.requireNonNull(helper.absolutePos(new BlockPos(7, 1, 3)));
+        idle.moveTo(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5);
+        helper.getLevel().addFreshEntity(idle);
+        scene.worker.setItemSlot(net.minecraft.world.entity.EquipmentSlot.MAINHAND, new ItemStack(Objects.requireNonNull(Items.DIRT), 8));
+        var ledger = new ReservationLedger();
+        SweepService.assign(Objects.requireNonNull(helper.getLevel()), idle, job, ledger, helper.getLevel().getGameTime());
+        helper.assertTrue(!job.finished(), "Idle worker marked the job complete before the last cargo was deposited");
+        var delivery = Objects.requireNonNull(SweepService.assign(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), job, ledger, helper.getLevel().getGameTime()));
+        helper.assertTrue(scene.worker.getMainHandItem().getCount() == 8, "Held cargo did not retain a delivery assignment");
+        helper.assertTrue(SweepService.execute(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), job, delivery, ledger, helper.getLevel().getGameTime())
+                && scene.worker.getMainHandItem().isEmpty()
+                && StorageAccess.at(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.warehouse.getBlockPos()), Objects.requireNonNull(scene.player.getUUID())).count(new ItemStack(Objects.requireNonNull(Items.DIRT))) == 8,
+                "Last cargo was not physically deposited without loss");
+        SweepService.assign(Objects.requireNonNull(helper.getLevel()), idle, job, ledger, helper.getLevel().getGameTime());
+        helper.assertTrue(job.finished(), "Sweep did not finish after the last cargo was deposited");
+        idle.discard();
+        scene.worker.discard();
+        helper.succeed();
+    }
+
     private static Scene scene(GameTestHelper helper) {
         for (int x = 0; x < 12; x++) for (int z = 0; z < 12; z++) { helper.setBlock(new BlockPos(x, 0, z), Objects.requireNonNull(Blocks.STONE)); for (int y = 1; y < 6; y++) helper.setBlock(new BlockPos(x, y, z), Objects.requireNonNull(Blocks.AIR)); }
         AABB bounds = new AABB(Objects.requireNonNull(helper.absolutePos(Objects.requireNonNull(BlockPos.ZERO))), Objects.requireNonNull(helper.absolutePos(new BlockPos(12, 6, 12))));

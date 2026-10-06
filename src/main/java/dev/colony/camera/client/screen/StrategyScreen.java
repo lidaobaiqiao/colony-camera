@@ -31,6 +31,10 @@ public final class StrategyScreen extends Screen {
     private double selectionStartX;
     private double selectionStartY;
     private boolean faceDragging;
+    private boolean rightDragging;
+    private boolean clearOnRightRelease;
+    private double rightStartX;
+    private double rightStartY;
     private double heightCursorX = Double.NaN;
     private boolean cursorConstraintQueued;
     private boolean pointerOverUi;
@@ -170,8 +174,15 @@ public final class StrategyScreen extends Screen {
             } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT
                     || button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE && !controller.angleLocked()) {
                 dragButton = button;
+                rightStartX = x;
+                rightStartY = y;
             }
             return true;
+        } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+            dragButton = button;
+            rightStartX = x;
+            rightStartY = y;
+            clearOnRightRelease = true;
         } else if (CameraKeyMappings.matchesAddSelectionMouse(button)) {
             controller.selection().toggleAdditive();
         } else if (CameraKeyMappings.matchesVolumeSelectionMouse(button)) {
@@ -190,8 +201,7 @@ public final class StrategyScreen extends Screen {
                 selectionStartY = y;
                 controller.selection().beginFaceSelection(normalized(x, width), normalized(y, height));
             }
-        } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT
-                || (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE && !controller.angleLocked())) {
+        } else if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE && !controller.angleLocked()) {
             dragButton = button;
         }
         // All clicks remain owned by the planning screen, never by the player.
@@ -204,7 +214,10 @@ public final class StrategyScreen extends Screen {
         if (button == dragButton && client.isWindowActive()) {
             switch (button) {
                 case GLFW.GLFW_MOUSE_BUTTON_MIDDLE -> controller.rotate(deltaX, deltaY);
-                case GLFW.GLFW_MOUSE_BUTTON_RIGHT -> controller.drag(deltaX, deltaY);
+                case GLFW.GLFW_MOUSE_BUTTON_RIGHT -> {
+                    rightDragging |= Math.hypot(x - rightStartX, y - rightStartY) * client.getWindow().getGuiScale() >= 4;
+                    if (rightDragging) controller.drag(deltaX, deltaY);
+                }
                 case GLFW.GLFW_MOUSE_BUTTON_LEFT -> {
                     double pixelScale = client.getWindow().getGuiScale();
                     faceDragging |= Math.hypot(x - selectionStartX, y - selectionStartY) * pixelScale >= 4;
@@ -222,6 +235,11 @@ public final class StrategyScreen extends Screen {
     public boolean mouseReleased(double x, double y, int button) {
         if (similarLimit.isOpen()) return true;
         if (button == dragButton) {
+            if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT && clearOnRightRelease && !rightDragging
+                    && client.isWindowActive() && !blocksWorldPointer(x, y)
+                    && Math.hypot(x - rightStartX, y - rightStartY) * client.getWindow().getGuiScale() < 4) {
+                controller.selection().clearSelection();
+            }
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && client.isWindowActive() && !blocksWorldPointer(x, y)) {
                 controller.selection().finishFaceSelection(normalized(x, width), normalized(y, height));
                 if (controller.selection().selectingHeight()) {
@@ -237,6 +255,8 @@ public final class StrategyScreen extends Screen {
     public void clearPointerGesture() {
         dragButton = -1;
         faceDragging = false;
+        rightDragging = false;
+        clearOnRightRelease = false;
         controller.selection().cancelBaseGesture();
         if (!controller.selection().selectingHeight()) {
             heightCursorX = Double.NaN;

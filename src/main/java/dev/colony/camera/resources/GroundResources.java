@@ -60,8 +60,16 @@ public final class GroundResources {
     }
     @Nullable public static Path path(ServerLevel level, WorkerEntity worker, BlockPos target) {
         if (!loaded(level, target) || !searchAreaLoaded(level, worker)) return null;
-        Path path = worker.getNavigation().createPath(target, 0);
+        Path path = worker.planningNavigation().createPath(target, 0);
         return path != null && path.canReach() ? path : null;
+    }
+    /** Start an actual route only after planning; vanilla retains the correct target for recalculation. */
+    public static boolean follow(ServerLevel level, WorkerEntity worker, Path planned) {
+        BlockPos target = Objects.requireNonNull(planned.getTarget());
+        if (!loaded(level, target) || !searchAreaLoaded(level, worker)) return false;
+        var navigation = worker.getNavigation();
+        Path route = navigation.createPath(target, 0);
+        return route != null && route.canReach() && navigation.moveTo(route, 1.0);
     }
     public static boolean canPickUp(ServerLevel level, WorkerEntity worker, ItemEntity item) {
         if (worker.distanceToSqr(item) > 3.25 || item.hasPickUpDelay()) return false;

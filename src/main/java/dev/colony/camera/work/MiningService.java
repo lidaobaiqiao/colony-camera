@@ -400,6 +400,6 @@ public final class MiningService {
         if (!worker.getNavigation().isDone()) return true;
         Path path = GroundResources.path(level, worker, target);
         if (path == null) return false;
-        return worker.getNavigation().moveTo(path, 1.0);
+        return GroundResources.follow(level, worker, path);
     }
 }

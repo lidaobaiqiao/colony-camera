@@ -31,7 +31,7 @@ public final class WorkPaths {
         if (!ConstructionManager.standable(level, stand)) return false;
         if (worker.distanceToSqr(GroundResources.bottom(stand)) <= 1.2) { worker.getNavigation().stop(); return true; }
         if (worker.getNavigation().isDone() || level.getGameTime() % 20 == 0) {
-            var path = GroundResources.path(level, worker, stand); if (path != null) worker.getNavigation().moveTo(path, 1.0);
+            var path = GroundResources.path(level, worker, stand); if (path != null) GroundResources.follow(level, worker, path);
         }
         return false;
     }

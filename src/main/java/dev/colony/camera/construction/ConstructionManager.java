@@ -327,7 +327,7 @@ public final class ConstructionManager extends SavedData {
             ItemStack taken = source.take(unit.count());
             if (taken.isEmpty()) { release(worker); reallocate = true; return; }
             worker.setItemSlot(EquipmentSlot.MAINHAND, taken); ledger.release(worker.getUUID()); task.storage = null; task.source = null;
-            task.deadline = time + 240; worker.getNavigation().moveTo(delivery, 1.0); project.reason = "transporting"; return;
+            task.deadline = time + 240; GroundResources.follow(level, worker, delivery); project.reason = "transporting"; return;
         }
         UUID sourceId = task.source;
         if (sourceId != null) {
@@ -353,7 +353,7 @@ public final class ConstructionManager extends SavedData {
             if (remaining.isEmpty()) source.discard(); else source.setItem(remaining);
             worker.setItemSlot(EquipmentSlot.MAINHAND, taken);
             ledger.release(worker.getUUID()); task.source = null; task.deadline = time + 240;
-            worker.getNavigation().moveTo(delivery, 1.0); project.reason = "transporting";
+            GroundResources.follow(level, worker, delivery); project.reason = "transporting";
             return;
         }
         if (!GroundResources.matches(Objects.requireNonNull(worker.getMainHandItem()), unit.item()) || worker.getMainHandItem().getCount() < unit.count()) {
@@ -375,7 +375,7 @@ public final class ConstructionManager extends SavedData {
         if (!worker.getNavigation().isDone()) return;
         if (!usePathBudget()) return;
         Path path = GroundResources.path(level, worker, target);
-        if (path != null) worker.getNavigation().moveTo(path, 1.0);
+        if (path != null) GroundResources.follow(level, worker, path);
     }
     @Nullable private BlockPos findStorageStand(ServerLevel level, WorkerEntity worker, BlockPos source) {
         var candidates = new ArrayList<BlockPos>();

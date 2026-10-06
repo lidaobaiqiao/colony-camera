@@ -401,6 +401,29 @@ public final class ConstructionGameTests {
         });
         helper.succeedWhen(() -> helper.assertTrue(high.finished() && low.finished() && box.inventory.getStackInSlot(0).isEmpty(), "Network supply did not resume lower job: " + low.reason));
     }
+    @GameTest(template = "construction", timeoutTicks = 20, batch = "navigation_regression")
+    public static void feasibilityProbesPreserveTheActiveWalkingTarget(GameTestHelper helper) {
+        Scene scene = scene(helper);
+        WorkerEntity worker = Objects.requireNonNull(scene.worker);
+        worker.setOnGround(true);
+        var level = Objects.requireNonNull(helper.getLevel());
+        BlockPos walking = Objects.requireNonNull(helper.absolutePos(new BlockPos(9, 1, 2)));
+        BlockPos probe = Objects.requireNonNull(helper.absolutePos(new BlockPos(2, 1, 9)));
+        var navigation = worker.getNavigation();
+        navigation.setCanFloat(true);
+        helper.assertTrue(worker.planningNavigation().canFloat(), "Planner lost the execution navigator's water setting");
+        var active = Objects.requireNonNull(navigation.createPath(walking, 0));
+        helper.assertTrue(navigation.moveTo(active, 1.0), "Initial walk did not start");
+        var first = Objects.requireNonNull(dev.colony.camera.resources.GroundResources.path(level, worker, probe));
+        var second = Objects.requireNonNull(dev.colony.camera.resources.GroundResources.path(level, worker, probe));
+        helper.assertTrue(first.getTarget().equals(probe) && second.getTarget().equals(probe), "A feasibility query reused the route to a different target");
+        helper.assertTrue(navigation.getPath() == active && walking.equals(navigation.getTargetPos()), "Feasibility probes changed the active navigation target");
+        helper.assertTrue(dev.colony.camera.resources.GroundResources.follow(level, worker, first)
+                && probe.equals(navigation.getTargetPos()), "Starting a probed route did not update the actual movement target");
+        worker.discard();
+        helper.succeed();
+    }
+
     private static Scene scene(GameTestHelper helper) {
         for (int x = 0; x < 12; x++) for (int z = 0; z < 12; z++) {
             helper.setBlock(new BlockPos(x, 0, z), Objects.requireNonNull(Blocks.STONE));

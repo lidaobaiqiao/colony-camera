@@ -3,6 +3,7 @@ package dev.colony.camera.work;
 import com.mojang.authlib.GameProfile;
 import dev.colony.camera.content.ColonyContent;
 import dev.colony.camera.content.MachineBlockEntity;
+import dev.colony.camera.construction.ConstructionManager;
 import dev.colony.camera.resources.GroundResources;
 import dev.colony.camera.resources.ReservationLedger;
 import dev.colony.camera.resources.StorageResources;
@@ -47,6 +48,9 @@ public final class SweepService {
         ItemStack cargo = Objects.requireNonNull(worker.getMainHandItem());
         var items = items(level, worker, job);
         if (cargo.isEmpty() && items.isEmpty()) {
+            // A different worker may already have picked up the last drop and still be hauling it.
+            if (ConstructionManager.get(level).workers(level).stream().anyMatch(other -> job.owner.equals(other.owner())
+                    && !other.getMainHandItem().isEmpty())) { job.reason = "hauling"; return null; }
             job.completed.set(0); job.requested = Math.max(1, job.done); job.done = job.requested; job.reason = "complete"; return null;
         }
         job.requested = Math.max(job.requested, job.done + items.size());

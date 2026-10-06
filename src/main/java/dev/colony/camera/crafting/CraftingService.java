@@ -175,7 +175,7 @@ public final class CraftingService {
             task.progress = 0; job.reason = "walking";
             if (worker.getNavigation().isDone()) {
                 var path = GroundResources.path(level, worker, task.stand);
-                if (path == null || !worker.getNavigation().moveTo(path, 1.0)) {
+                if (path == null || !GroundResources.follow(level, worker, path)) {
                     if (!worker.onGround()) { job.reason = "walking"; return false; }
                     job.reason = "unreachable"; return true;
                 }

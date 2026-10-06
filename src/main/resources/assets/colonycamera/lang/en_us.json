@@ -352,5 +352,6 @@
   "screen.colonycamera.similar_limit.cancel": "Cancel",
   "screen.colonycamera.similar_limit.save": "Save",
   "screen.colonycamera.ui.tip.similar_limit": "Set the maximum blocks per similar-selection click; currently %s",
-  "screen.colonycamera.similar_limit.range": "Range: 1–%s · Default: 64 · Includes the clicked block"
+  "screen.colonycamera.similar_limit.range": "Range: 1–%s · Default: 64 · Includes the clicked block",
+  "screen.colonycamera.ui.mouse.right_click": "Right click"
 }

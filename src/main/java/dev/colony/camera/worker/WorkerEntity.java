@@ -33,9 +33,12 @@ public final class WorkerEntity extends PathfinderMob {
     @Nullable public ConstructionManager.Assignment assignment;
     @Nullable public WorkTask workTask;
     private int miningExperience;
+    @Nonnull private final PathNavigation planningNavigation;
 
     public WorkerEntity(EntityType<? extends WorkerEntity> type, Level level) {
         super(type, level);
+        // Feasibility queries must not mutate the route or stuck timer of the moving navigator.
+        planningNavigation = new LoadedGroundNavigation(this, level);
         setPersistenceRequired();
         setDropChance(EquipmentSlot.MAINHAND, 2.0F);
         setDropChance(EquipmentSlot.OFFHAND, 2.0F);
@@ -45,6 +48,10 @@ public final class WorkerEntity extends PathfinderMob {
                 .add(Objects.requireNonNull(Attributes.MOVEMENT_SPEED), 0.3).add(Objects.requireNonNull(Attributes.FOLLOW_RANGE), NAVIGATION_RANGE));
     }
     @Override @Nonnull protected PathNavigation createNavigation(Level level) { return new LoadedGroundNavigation(this, level); }
+    @Nonnull public PathNavigation planningNavigation() {
+        planningNavigation.setCanFloat(getNavigation().canFloat());
+        return planningNavigation;
+    }
     @Override protected void registerGoals() {
         goalSelector.addGoal(0, new FloatGoal(this));
         goalSelector.addGoal(2, new LookAtPlayerGoal(this, Player.class, 6));

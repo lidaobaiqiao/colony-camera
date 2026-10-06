@@ -352,5 +352,6 @@
   "screen.colonycamera.similar_limit.cancel": "取消",
   "screen.colonycamera.similar_limit.save": "保存",
   "screen.colonycamera.ui.tip.similar_limit": "设置每次相似选择的最大数量，当前 %s 个",
-  "screen.colonycamera.similar_limit.range": "范围 1–%s · 默认 64 · 包含点击的方块"
+  "screen.colonycamera.similar_limit.range": "范围 1–%s · 默认 64 · 包含点击的方块",
+  "screen.colonycamera.ui.mouse.right_click": "右键单击"
 }

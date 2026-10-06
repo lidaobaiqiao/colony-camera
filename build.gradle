@@ -192,6 +192,7 @@ tasks.register('verifyModJar') {
                     'dev/colony/camera/network/ConstructionPayload.class',
                     'dev/colony/camera/worker/WorkerEntity.class',
                     'dev/colony/camera/worker/LoadedGroundNavigation.class',
+                    'dev/colony/camera/worker/WorkerWalkNodeEvaluator.class',
                     'dev/colony/camera/worker/ColonyEntities.class',
                     'dev/colony/camera/client/construction/ConstructionClient.class',
                     'dev/colony/camera/client/construction/WorkerRenderer.class',

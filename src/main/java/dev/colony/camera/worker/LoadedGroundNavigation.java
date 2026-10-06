@@ -4,8 +4,12 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.entity.ai.navigation.GroundPathNavigation;
+import net.minecraft.world.level.pathfinder.PathFinder;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.util.Mth;
 import net.minecraft.world.level.pathfinder.Path;
 import javax.annotation.Nullable;
+import javax.annotation.Nonnull;
 import javax.annotation.ParametersAreNonnullByDefault;
 import java.util.Set;
 import java.util.Objects;
@@ -14,6 +18,17 @@ import java.util.Objects;
 @ParametersAreNonnullByDefault
 public final class LoadedGroundNavigation extends GroundPathNavigation {
     public LoadedGroundNavigation(WorkerEntity worker, Level level) { super(worker, level); }
+    @Override @Nonnull protected PathFinder createPathFinder(int maxVisitedNodes) {
+        WorkerWalkNodeEvaluator evaluator = new WorkerWalkNodeEvaluator();
+        nodeEvaluator = evaluator;
+        evaluator.setCanPassDoors(true);
+        return new PathFinder(evaluator, maxVisitedNodes);
+    }
+    @Override @Nonnull protected Vec3 getTempMobPos() {
+        // Ground navigation normally measures from the water surface, skipping submerged bed waypoints.
+        return mob.isInWater() ? new Vec3(mob.getX(), Mth.floor(mob.getY() + 0.5), mob.getZ())
+                : Objects.requireNonNull(super.getTempMobPos());
+    }
     @Override @Nullable protected Path createPath(Set<BlockPos> targets, int regionExtra, boolean above, int reach, float distance) {
         if (!(level instanceof ServerLevel server)) return null;
         BlockPos origin = Objects.requireNonNull(mob.blockPosition());

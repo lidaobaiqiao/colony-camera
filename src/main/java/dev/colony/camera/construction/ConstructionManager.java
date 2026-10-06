@@ -17,6 +17,7 @@ import dev.colony.camera.content.PrintingCores;
 import dev.colony.camera.work.ColonyJob;
 import dev.colony.camera.work.ColonyWorkManager;
 import net.minecraft.core.BlockPos;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -409,8 +410,14 @@ public final class ConstructionManager extends SavedData {
         return null;
     }
     public static boolean standable(ServerLevel level, BlockPos pos) {
+        return workStandable(level, pos) && level.getBlockState(pos).getFluidState().isEmpty();
+    }
+    /** Work may use shallow water with solid footing and an air-filled head space; spawning remains dry. */
+    public static boolean workStandable(ServerLevel level, BlockPos pos) {
         return GroundResources.loaded(level, pos) && !level.isOutsideBuildHeight(pos) && !level.isOutsideBuildHeight(Objects.requireNonNull(pos.above()))
-                && level.getWorldBorder().isWithinBounds(pos) && level.getBlockState(pos).getFluidState().isEmpty()
+                && level.getWorldBorder().isWithinBounds(pos)
+                && (level.getBlockState(pos).getFluidState().isEmpty() || level.getBlockState(pos).getFluidState().is(Objects.requireNonNull(FluidTags.WATER)))
+                && level.getBlockState(Objects.requireNonNull(pos.above())).getFluidState().isEmpty()
                 && level.getBlockState(Objects.requireNonNull(pos.below())).isFaceSturdy(level, Objects.requireNonNull(pos.below()), Direction.UP)
                 && level.noCollision(GroundResources.body(pos));
     }

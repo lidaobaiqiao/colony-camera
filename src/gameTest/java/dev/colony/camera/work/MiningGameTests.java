@@ -51,6 +51,7 @@ public final class MiningGameTests {
         ItemStack pick = new ItemStack(Objects.requireNonNull(Items.WOODEN_PICKAXE)); pick.setDamageValue(11);
         scene.worker.setItemSlot(EquipmentSlot.OFFHAND, pick);
         scene.worker.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Objects.requireNonNull(Items.DIRT), 3));
+        UUID delivery = Objects.requireNonNull(UUID.randomUUID()); scene.worker.cargoTask(delivery);
         ColonyJob job = job(helper, scene, new BlockPos(3, 1, 3)); WorkTask task = task(helper, scene, job);
         helper.onEachTick(() -> MiningService.execute(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), Objects.requireNonNull(job), Objects.requireNonNull(task), Objects.requireNonNull(scene.ledger), helper.getLevel().getGameTime()));
         helper.succeedWhen(() -> {
@@ -62,7 +63,7 @@ public final class MiningGameTests {
             CompoundTag saved = new CompoundTag(); scene.worker.saveWithoutId(saved);
             var restored = Objects.requireNonNull(ColonyEntities.WORKER.get().create(Objects.requireNonNull(helper.getLevel()))); restored.load(saved);
             helper.assertTrue(restored.miningXp() == 1 && restored.getOffhandItem().getDamageValue() == 12
-                    && restored.getMainHandItem().getCount() == 3, "Saved skill/tool/material did not survive loading");
+                    && restored.getMainHandItem().getCount() == 3 && delivery.equals(restored.cargoTask()), "Saved skill/tool/material/cargo owner did not survive loading");
         });
     }
 

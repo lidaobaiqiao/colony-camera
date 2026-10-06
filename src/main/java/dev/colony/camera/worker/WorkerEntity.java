@@ -34,6 +34,7 @@ public final class WorkerEntity extends PathfinderMob {
     public static final int NAVIGATION_RANGE = 64;
     private static final double SWIM_SPEED = 5.0;
     @Nullable private UUID owner;
+    @Nullable private UUID cargoTask;
     @Nullable public ConstructionManager.Assignment assignment;
     @Nullable public WorkTask workTask;
     private int miningExperience;
@@ -71,6 +72,8 @@ public final class WorkerEntity extends PathfinderMob {
     }
     public void owner(UUID value) { owner = Objects.requireNonNull(value); }
     @Nullable public UUID owner() { return owner; }
+    @Nullable public UUID cargoTask() { return getMainHandItem().isEmpty() ? null : cargoTask; }
+    public void cargoTask(@Nullable UUID value) { cargoTask = value; }
     public int miningLevel() { return MiningSkill.level(miningExperience); }
     public int miningXp() { return miningExperience; }
     public void gainMiningExperience(int amount) { miningExperience = MiningSkill.gain(miningExperience, amount); }
@@ -93,10 +96,13 @@ public final class WorkerEntity extends PathfinderMob {
         super.addAdditionalSaveData(tag);
         UUID id = owner;
         if (id != null) tag.putUUID("ColonyOwner", id);
+        UUID cargo = cargoTask();
+        if (cargo != null) tag.putUUID("ColonyCargoTask", cargo);
         tag.putInt("ColonyMiningXp", miningExperience);
     }
     @Override public void readAdditionalSaveData(CompoundTag tag) {
         super.readAdditionalSaveData(tag);
+        cargoTask = tag.hasUUID("ColonyCargoTask") ? tag.getUUID("ColonyCargoTask") : null;
         // Saved vanilla attribute bases from older workers otherwise overwrite the new default.
         Objects.requireNonNull(getAttribute(Objects.requireNonNull(ForgeMod.SWIM_SPEED.get()))).setBaseValue(SWIM_SPEED);
         owner = tag.hasUUID("ColonyOwner") ? tag.getUUID("ColonyOwner") : null;

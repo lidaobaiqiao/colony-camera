@@ -46,13 +46,15 @@ public final class SweepService {
             if (!level.getChunkSource().hasChunk(x, z)) { job.reason = "unloaded"; return null; }
         }
         ItemStack cargo = Objects.requireNonNull(worker.getMainHandItem());
+        boolean ownCargo = ownsCargo(level, worker, job);
         var items = items(level, worker, job);
-        if (cargo.isEmpty() && items.isEmpty()) {
+        if (!ownCargo && items.isEmpty()) {
             // A different worker may already have picked up the last drop and still be hauling it.
             if (ConstructionManager.get(level).workers(level).stream().anyMatch(other -> job.owner.equals(other.owner())
-                    && !other.getMainHandItem().isEmpty())) { job.reason = "hauling"; return null; }
+                    && ownsCargo(level, Objects.requireNonNull(other), job))) { job.reason = "hauling"; return null; }
             job.completed.set(0); job.requested = Math.max(1, job.done); job.done = job.requested; job.reason = "complete"; return null;
         }
+        if (!cargo.isEmpty() && !ownCargo) { job.reason = "queued"; return null; }
         job.requested = Math.max(job.requested, job.done + items.size());
         for (BlockPos destination : StorageResources.scan(level, worker)) {
             if (!(level.getBlockEntity(Objects.requireNonNull(destination)) instanceof MachineBlockEntity machine)
@@ -62,6 +64,7 @@ public final class SweepService {
             BlockPos deposit = WorkPaths.beside(level, worker, destination); if (deposit == null) continue;
             if (!cargo.isEmpty()) {
                 if (access.insert(cargo, true).getCount() >= cargo.getCount()) continue;
+                worker.cargoTask(job.id);
                 WorkTask task = new WorkTask(job.id, deposit, time + 1200); task.destination = destination; return task;
             }
             for (ItemEntity item : items.stream().limit(128).toList()) {
@@ -80,6 +83,24 @@ public final class SweepService {
         }
         job.reason = cargo.isEmpty() && items.stream().anyMatch((ItemEntity checkedElement) -> Objects.requireNonNull(checkedElement).hasPickUpDelay()) ? "pickup_delay" : "storage_full_or_unreachable";
         return null;
+    }
+    private static boolean ownsCargo(ServerLevel level, WorkerEntity worker, ColonyJob job) {
+        if (worker.getMainHandItem().isEmpty()) return false;
+        var taskId = worker.cargoTask();
+        if (job.id.equals(taskId)) return true;
+        if (taskId != null) {
+            var construction = ConstructionManager.get(level).project(taskId);
+            if (construction != null && !construction.cancelled && !construction.finished()) return false;
+            if (ColonyWorkManager.get(level).all().stream().anyMatch(other -> other.id.equals(taskId) && !other.cancelled && !other.finished())) return false;
+        } else {
+            WorkTask previous = worker.workTask;
+            if (previous != null && previous.job.equals(job.id) && previous.destination != null) {
+                worker.cargoTask(job.id); return true;
+            }
+            if (ConstructionManager.get(level).recoverConstructionCargo(worker)) return false;
+        }
+        // Cancelled/orphaned deliveries and legacy sweep cargo may be returned to storage.
+        return true;
     }
     public static boolean execute(ServerLevel level, WorkerEntity worker, ColonyJob job, WorkTask task, ReservationLedger ledger, long time) {
         var destination = task.destination;
@@ -108,6 +129,7 @@ public final class SweepService {
             if (wanted <= 0) { job.reason = "storage_full_or_unreachable"; return true; }
             ItemStack pickup = item.getItem().split(wanted);
             worker.setItemSlot(EquipmentSlot.MAINHAND, Objects.requireNonNull(pickup));
+            worker.cargoTask(job.id);
             if (item.getItem().isEmpty()) item.discard(); else item.setItem(Objects.requireNonNull(item.getItem()));
             task.source = null; job.reason = "hauling"; return false;
         }
@@ -116,6 +138,7 @@ public final class SweepService {
         ItemStack remaining = StorageAccess.at(level, destination, job.owner).insert(held, false);
         worker.setItemSlot(EquipmentSlot.MAINHAND, remaining);
         if (!remaining.isEmpty()) { job.reason = "storage_full_or_unreachable"; return true; }
+        worker.cargoTask(null);
         job.done++; job.reason = "queued"; return true;
     }
 }

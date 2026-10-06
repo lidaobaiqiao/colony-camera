@@ -47,6 +47,29 @@ import java.util.function.Consumer;
 @GameTestHolder(ColonyCamera.ID)
 @PrefixGameTestTemplate(false)
 public final class ConstructionGameTests {
+    @GameTest(template = "construction", timeoutTicks = 450, batch = "construction_sweep_regression")
+    public static void blockedEarlierSweepDoesNotRecycleConstructionMaterials(GameTestHelper helper) {
+        Scene scene = scene(helper);
+        MachineBlockEntity warehouse = machine(helper, scene, 2, 1, 4, ColonyContent.WAREHOUSE.get());
+        warehouse.inventory.setStackInSlot(0, new ItemStack(Objects.requireNonNull(Items.COBBLESTONE)));
+        for (int x = 8; x <= 10; x++) for (int z = 8; z <= 10; z++) for (int y = 1; y <= 3; y++) {
+            if (x != 9 || z != 9 || y == 3) helper.setBlock(new BlockPos(x, y, z), Objects.requireNonNull(Blocks.STONE));
+        }
+        BlockPos sealed = Objects.requireNonNull(helper.absolutePos(new BlockPos(9, 1, 9)));
+        ItemEntity unreachable = new ItemEntity(Objects.requireNonNull(helper.getLevel()), sealed.getX() + .5, sealed.getY() + .1,
+                sealed.getZ() + .5, new ItemStack(Objects.requireNonNull(Items.DIAMOND)));
+        unreachable.setTarget(scene.player.getUUID()); unreachable.setNoPickUpDelay(); unreachable.setNoGravity(true);
+        unreachable.setDeltaMovement(Objects.requireNonNull(Vec3.ZERO)); helper.getLevel().addFreshEntity(unreachable);
+        dev.colony.camera.work.ColonyWorkManager.get(Objects.requireNonNull(helper.getLevel())).sweep(Objects.requireNonNull(scene.player),
+                Objects.requireNonNull(helper.absolutePos(new BlockPos(8, 1, 8))), Objects.requireNonNull(helper.absolutePos(new BlockPos(10, 3, 10))));
+        ConstructionProject building = project(helper, scene, 10, 3, 5);
+        helper.succeedWhen(() -> {
+            helper.assertTrue(building.finished(), "Earlier blocked sweep kept returning construction material: " + building.reason);
+            helper.assertTrue(unreachable.isAlive() && unreachable.getItem().getCount() == 1 && warehouse.inventory.getStackInSlot(0).isEmpty()
+                    && helper.getBlockState(new BlockPos(10, 1, 3)).is(Objects.requireNonNull(Blocks.COBBLESTONE)), "Blocked sweep or construction changed material quantities");
+        });
+    }
+
     private record Scene(FakePlayer player, ConstructionManager manager, WorkerEntity worker) {}
 
     @GameTest(template = "construction", timeoutTicks = 20)

@@ -4,6 +4,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 import dev.colony.camera.client.camera.StrategyCameraController;
 import dev.colony.camera.client.input.CameraKeyMappings;
 import dev.colony.camera.client.planning.ProjectionController;
+import dev.colony.camera.client.selection.SelectionState;
 import dev.colony.camera.client.work.WorkPanel;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -59,7 +60,7 @@ public final class StrategyScreen extends Screen {
         similarLimit.resize(Objects.requireNonNull(font), hud.layout().similarLimitDialog());
         projections.resize(Objects.requireNonNull(font), width, height, hud.layout().hint().y());
         work.resize(Objects.requireNonNull(font), width, height);
-        building.resize(Objects.requireNonNull(font), width, height, hud.layout().hint().y());
+        building.resize(Objects.requireNonNull(font), width, height, hud.layout().dock().y() - 4);
         pointerOverUi = false;
     }
 
@@ -124,7 +125,7 @@ public final class StrategyScreen extends Screen {
                 } else if (CameraKeyMappings.matchesAddSelection(key, scan)) {
                     controller.selection().toggleAdditive();
                 } else if (CameraKeyMappings.matchesVolumeSelection(key, scan)) {
-                    controller.selection().toggleVolumeMode();
+                    toggleVolumeSelection();
                 } else {
                     controller.selection().clearSelection();
                 }
@@ -173,6 +174,10 @@ public final class StrategyScreen extends Screen {
             }
             return true;
         }
+        if (CameraKeyMappings.matchesVolumeSelectionMouse(button)) {
+            toggleVolumeSelection();
+            return true;
+        }
         if (ProjectionController.instance().draft() != null) {
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                 ProjectionController.instance().followPointer(normalized(x, width), normalized(y, height), false);
@@ -192,8 +197,6 @@ public final class StrategyScreen extends Screen {
             clearOnRightRelease = true;
         } else if (CameraKeyMappings.matchesAddSelectionMouse(button)) {
             controller.selection().toggleAdditive();
-        } else if (CameraKeyMappings.matchesVolumeSelectionMouse(button)) {
-            controller.selection().toggleVolumeMode();
         } else if (CameraKeyMappings.matchesClearSelectionMouse(button)) {
             controller.selection().clearSelection();
         } else if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
@@ -346,11 +349,11 @@ public final class StrategyScreen extends Screen {
     }
 
     public boolean blocksWorldPointer(double x, double y) {
-        return similarLimit.isOpen() || building.blocks(x, y) || work.blocks(x, y) || projections.blocks(x, y) || hud.layout() != null && hud.layout().blocksWorld(x, y, hud.helpOpen());
+        return similarLimit.isOpen() || building.blocks(x, y) || work.blocks(x, y) || projections.blocks(x, y) || hud.blocksWorld(x, y, controller, building.isOpen());
     }
 
     public boolean allowsCameraInput() {
-        return !similarLimit.isOpen() && !building.isOpen() && !hud.helpOpen() && !projections.modal() && !work.isOpen();
+        return !similarLimit.isOpen() && !building.capturesKeyboard() && !hud.helpOpen() && !projections.modal() && !work.isOpen();
     }
 
     private void openWork() {
@@ -362,17 +365,28 @@ public final class StrategyScreen extends Screen {
         clearInputState(); building.close(); projections.close(); hud.closeHelp(); work.openStation(pos, research);
     }
 
+    /** Selecting a tool releases only the unplaced draft, never accepted projects. */
+    private void prepareSelectionTool() {
+        clearPointerGesture();
+        heightCursorX = Double.NaN;
+        building.close();
+        ProjectionController.instance().cancel();
+    }
+
+    private void toggleVolumeSelection() {
+        prepareSelectionTool();
+        controller.selection().toggleVolumeMode();
+    }
+
     private void runHudAction(StrategyHudLayout.Action action) {
         switch (action) {
-            case SIMILAR -> {
-                if (controller.selection().volumeMode()) {
-                    controller.selection().toggleVolumeMode();
-                }
-            }
-            case VOLUME -> {
-                if (!controller.selection().volumeMode()) {
-                    controller.selection().toggleVolumeMode();
-                }
+            case SINGLE, SIMILAR, VOLUME -> {
+                prepareSelectionTool();
+                controller.selection().selectMode(switch (action) {
+                    case SINGLE -> SelectionState.Mode.SINGLE;
+                    case SIMILAR -> SelectionState.Mode.SIMILAR;
+                    default -> SelectionState.Mode.VOLUME;
+                });
             }
             case ADDITIVE -> controller.selection().toggleAdditive();
             case CLEAR -> controller.selection().clearSelection();
@@ -392,7 +406,7 @@ public final class StrategyScreen extends Screen {
 
     @Override
     public void render(@Nonnull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        hud.render(graphics, Objects.requireNonNull(font), controller, mouseX, mouseY, width, height);
+        hud.render(graphics, Objects.requireNonNull(font), controller, mouseX, mouseY, width, height, building.isOpen());
         projections.render(graphics, mouseX, mouseY, partialTick);
         work.render(graphics, mouseX, mouseY);
         if (building.isOpen() || !work.isOpen() && !projections.modal() && !hud.helpOpen() && !similarLimit.isOpen()) {

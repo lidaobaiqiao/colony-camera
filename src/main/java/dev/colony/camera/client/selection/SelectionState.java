@@ -1,5 +1,6 @@
 package dev.colony.camera.client.selection;
 
+import javax.annotation.Nonnull;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
@@ -12,10 +13,30 @@ import java.util.function.Predicate;
 /** Owns selection membership independently of Minecraft rendering and input. */
 public final class SelectionState {
     public static final int MAX_BLOCKS = 8192;
+    public enum Mode { SINGLE, SIMILAR, VOLUME }
 
     private final LinkedHashSet<Cell> selected = new LinkedHashSet<>();
     private final Set<Cell> readOnlyCells = Collections.unmodifiableSet(selected);
     private boolean additive;
+    @Nonnull
+    private Mode mode = Mode.SINGLE;
+    @Nonnull
+    private Mode clickMode = Mode.SINGLE;
+
+    @Nonnull
+    public Mode mode() {
+        return mode;
+    }
+
+    public void selectMode(@Nonnull Mode next) {
+        mode = Objects.requireNonNull(next, "mode");
+        if (next != Mode.VOLUME) clickMode = next;
+    }
+
+    /** Returns to the last click tool instead of losing single/similar preference. */
+    public void toggleVolumeMode() {
+        selectMode(mode == Mode.VOLUME ? clickMode : Mode.VOLUME);
+    }
 
     public void toggleAdditive() {
         additive = !additive;
@@ -28,6 +49,8 @@ public final class SelectionState {
     public void reset() {
         clear();
         additive = false;
+        mode = Mode.SINGLE;
+        clickMode = Mode.SINGLE;
     }
 
     public void clear() {

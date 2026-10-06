@@ -34,6 +34,21 @@ import java.util.*;
 @ParametersAreNonnullByDefault
 public final class BuildingGameTests {
     private record Scene(@Nonnull FakePlayer player, @Nonnull WorkerEntity worker, @Nonnull ConstructionManager construction, @Nonnull ColonyWorkManager work) {}
+    @GameTest(template = "construction", timeoutTicks = 300, batch = "building_drop")
+    public static void paletteReplacesGrassWhileSolidConflictsRemainProtected(GameTestHelper helper) {
+        Scene scene = scene(helper);
+        BlockPos target = pos(helper, 8, 1, 7); UUID id = Objects.requireNonNull(UUID.randomUUID());
+        helper.setBlock(new BlockPos(8, 1, 7), Objects.requireNonNull(Blocks.GRASS));
+        scene.worker.setItemSlot(net.minecraft.world.entity.EquipmentSlot.MAINHAND, new ItemStack(Objects.requireNonNull(Items.STONE)));
+        BuildCatalogService.place(scene.player, id, Objects.requireNonNull(Items.STONE), target, 0, "", null);
+        BlockPos solid = pos(helper, 9, 1, 7); UUID blocked = Objects.requireNonNull(UUID.randomUUID());
+        helper.setBlock(new BlockPos(9, 1, 7), Objects.requireNonNull(Blocks.OBSIDIAN));
+        BuildCatalogService.place(scene.player, blocked, Objects.requireNonNull(Items.DIRT), solid, 0, "", null);
+        helper.succeedWhen(() -> {
+            helper.assertTrue(Objects.requireNonNull(scene.construction.project(id)).finished() && helper.getLevel().getBlockState(target).is(Objects.requireNonNull(Blocks.STONE)), "Replaceable grass blocked palette construction");
+            helper.assertTrue(helper.getLevel().getBlockState(solid).is(Objects.requireNonNull(Blocks.OBSIDIAN)) && !Objects.requireNonNull(scene.construction.project(blocked)).finished(), "Solid conflict was overwritten");
+        });
+    }
     @GameTest(template = "construction", timeoutTicks = 250, batch = "building_drop")
     public static void realGroundStockBuildsOnlyAfterAWorkerFetchesIt(GameTestHelper helper) {
         Scene scene = scene(helper); BlockPos target = pos(helper, 8, 1, 7); UUID projectId = Objects.requireNonNull(UUID.randomUUID());

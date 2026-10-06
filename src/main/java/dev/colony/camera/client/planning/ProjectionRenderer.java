@@ -70,9 +70,12 @@ public final class ProjectionRenderer {
         if (!Objects.equals(scanned, draft) || scannedLevel != level) {
             scanned = draft; scannedLevel = level; scanIndex = missing = matching = conflicting = unavailable = 0;
         }
-        if (draft != null) scan(level, draft);
+        if (draft != null) scan(level, draft, controller.blockDraft());
         var placements = new ArrayList<>(controller.placements());
-        placements.addAll(dev.colony.camera.client.construction.ConstructionClient.palettePlans());
+        var palettePlans = dev.colony.camera.client.construction.ConstructionClient.palettePlans();
+        var paletteIds = new java.util.HashSet<java.util.UUID>();
+        for (var plan : palettePlans) paletteIds.add(plan.id());
+        placements.addAll(palettePlans);
         if (placements.isEmpty() && draft == null) return;
         RenderType type = Objects.requireNonNull(RenderType.entityTranslucent(Objects.requireNonNull(InventoryMenu.BLOCK_ATLAS)));
         VertexConsumer models = Objects.requireNonNull(MODEL_BUFFERS.getBuffer(type));
@@ -82,17 +85,17 @@ public final class ProjectionRenderer {
         try {
             for (ProjectionPlacement placement : placements) {
                 if (placement.visible() && (draft == null || !draft.id().equals(placement.id()))) {
-                    draw(mc, level, event, Objects.requireNonNull(placement), camera, models, lines);
+                    draw(mc, level, event, Objects.requireNonNull(placement), camera, models, lines, paletteIds.contains(placement.id()));
                 }
             }
-            if (draft != null) draw(mc, level, event, draft, camera, models, lines);
+            if (draft != null) draw(mc, level, event, draft, camera, models, lines, controller.blockDraft());
         } finally {
             MODEL_BUFFERS.endBatch(type);
             LINE_BUFFERS.endBatch(lineType);
         }
     }
 
-    private static void scan(ClientLevel level, ProjectionPlacement placement) {
+    private static void scan(ClientLevel level, ProjectionPlacement placement, boolean palette) {
         List<PreparedBlock> blocks = prepare(placement);
         if (scanIndex == blocks.size() && level.getGameTime() - scanCompletedAt >= 40) {
             scanIndex = missing = matching = conflicting = unavailable = 0;
@@ -105,7 +108,7 @@ public final class ProjectionRenderer {
             else {
                 BlockState actual = level.getBlockState(pos);
                 if (actual.equals(block.state())) matching++;
-                else if (actual.isAir()) missing++;
+                else if (palette ? dev.colony.camera.construction.BlockBuilding.canReplace(Objects.requireNonNull(actual)) : actual.isAir()) missing++;
                 else conflicting++;
             }
         }
@@ -114,7 +117,7 @@ public final class ProjectionRenderer {
     }
 
     private static void draw(Minecraft mc, ClientLevel level, RenderLevelStageEvent event, ProjectionPlacement placement,
-                             Vec3 camera, VertexConsumer models, VertexConsumer lines) {
+                             Vec3 camera, VertexConsumer models, VertexConsumer lines, boolean palette) {
         double distance = Math.max(32, mc.options.getEffectiveRenderDistance() * 16.0);
         if (camera.x < placement.x() - distance || camera.x > placement.x() + placement.width() + distance
                 || camera.z < placement.z() - distance || camera.z > placement.z() + placement.depth() + distance) return;
@@ -128,7 +131,7 @@ public final class ProjectionRenderer {
                 if (!loaded(level, pos)) continue;
                 BlockState actual = level.getBlockState(pos);
                 if (actual.equals(block.state())) continue;
-                boolean conflict = !actual.isAir();
+                boolean conflict = !(palette ? dev.colony.camera.construction.BlockBuilding.canReplace(Objects.requireNonNull(actual)) : actual.isAir());
                 float red = conflict ? 1 : 0.65F;
                 float green = conflict ? 0.35F : 1;
                 float blue = conflict ? 0.3F : 0.95F;

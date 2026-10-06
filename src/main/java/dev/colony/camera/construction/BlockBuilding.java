@@ -24,6 +24,9 @@ import java.util.UUID;
 /** Server and client derive the same small design from a registered item; no client block data is trusted. */
 @ParametersAreNonnullByDefault
 public final class BlockBuilding {
+    public static boolean canReplace(BlockState state) {
+        return state.isAir() || state.canBeReplaced() && state.getFluidState().isEmpty();
+    }
     private BlockBuilding() {}
     @Nonnull public static BlockPreset design(Item item) {
         if (!(item instanceof BlockItem blockItem)) throw new IllegalArgumentException("unsupported");

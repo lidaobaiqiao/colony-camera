@@ -190,7 +190,10 @@ public final class ProjectionController {
         BlockHitResult hit = StrategyCameraController.instance().selection().hitAt(x, y);
         cursorValid = hit != null;
         if (hit == null) return;
-        BlockPos target = Objects.requireNonNull(hit.getBlockPos().relative(Objects.requireNonNull(hit.getDirection())));
+        BlockPos clicked = Objects.requireNonNull(hit.getBlockPos());
+        ClientLevel world = level;
+        BlockPos target = blockDraft() && world != null && dev.colony.camera.construction.BlockBuilding.canReplace(Objects.requireNonNull(world.getBlockState(clicked)))
+                ? clicked : Objects.requireNonNull(clicked.relative(Objects.requireNonNull(hit.getDirection())));
         ProjectionPlacement moved = current.at(target.getX(), target.getY() + heightOffset, target.getZ());
         if (!moved.equals(current)) { draft = moved; revision++; }
     }

@@ -57,7 +57,6 @@ public final class BlockSelectionController {
     private boolean faceValid;
     private boolean faceAdditive;
     private final HeightSelection heightPointer = new HeightSelection();
-    private boolean volumeMode;
     private VolumeScan volumeScan;
     private SimilarTask similarScan;
     private boolean jobAdditive;
@@ -65,6 +64,7 @@ public final class BlockSelectionController {
     private int revision;
     @Nonnull
     private Component status = emptyMessage();
+    private long statusTime;
     @Nonnull
     private Component description = emptyMessage();
     @Nonnull
@@ -81,11 +81,13 @@ public final class BlockSelectionController {
     }
 
     public void requestSelection(double x, double y) {
-        enqueue(new Action(x, y, null, state.additive(), currentView, dev.colony.camera.config.SelectionConfig.similarLimit()));
+        if (volumeMode()) return;
+        enqueue(new Action(x, y, null, state.additive(), currentView, state.mode(),
+                dev.colony.camera.config.SelectionConfig.similarLimit()));
     }
 
     public void beginFaceSelection(double x, double y) {
-        if (!volumeMode) return;
+        if (!volumeMode()) return;
         cancelBaseGesture();
         Minecraft mc = Minecraft.getInstance();
         if (currentView == null || mc.level == null || mc.player == null) {
@@ -208,7 +210,7 @@ public final class BlockSelectionController {
             setStatus("screen.colonycamera.selection.unloaded");
             return;
         }
-        enqueue(new Action(0, 0, bounds, faceAdditive, null, 0));
+        enqueue(new Action(0, 0, bounds, faceAdditive, null, SelectionState.Mode.VOLUME, 0));
         resetFaceGesture();
         updateDescription();
     }
@@ -248,7 +250,6 @@ public final class BlockSelectionController {
         selectionPlayer = null;
         currentView = null;
         state.reset();
-        volumeMode = false;
         selectedHit = null;
         resetGeometry();
         status = emptyMessage();
@@ -288,13 +289,25 @@ public final class BlockSelectionController {
 
     public void toggleVolumeMode() {
         cancelPointerInput();
-        volumeMode = !volumeMode;
+        state.toggleVolumeMode();
         status = emptyMessage();
         updateDescription();
     }
 
+    public void selectMode(@Nonnull SelectionState.Mode mode) {
+        cancelPointerInput();
+        state.selectMode(mode);
+        status = emptyMessage();
+        updateDescription();
+    }
+
+    @Nonnull
+    public SelectionState.Mode mode() {
+        return state.mode();
+    }
+
     public boolean volumeMode() {
-        return volumeMode;
+        return state.mode() == SelectionState.Mode.VOLUME;
     }
 
     public int revision() {
@@ -310,6 +323,7 @@ public final class BlockSelectionController {
     public Component statusMessage() {
         return status;
     }
+    public boolean recentStatus() { return !status.getString().isEmpty() && System.nanoTime() - statusTime < 4_000_000_000L; }
 
     @Nonnull
     public Component selectedName() {
@@ -417,9 +431,15 @@ public final class BlockSelectionController {
                     if (commit(List.of(), action.additive())) selectedHit = null;
                     continue;
                 }
-                similarScan = new SimilarTask(world, hit, action.similarLimit());
-                jobAdditive = action.additive();
-                setStatus("screen.colonycamera.selection.working");
+                if (action.mode() == SelectionState.Mode.SINGLE) {
+                    if (commit(List.of(cell(Objects.requireNonNull(hit.getBlockPos()))), action.additive())) {
+                        selectedHit = state.size() == 1 ? hit : null;
+                    }
+                } else {
+                    similarScan = new SimilarTask(world, hit, action.similarLimit());
+                    jobAdditive = action.additive();
+                    setStatus("screen.colonycamera.selection.working");
+                }
             }
         }
     }
@@ -583,8 +603,11 @@ public final class BlockSelectionController {
     }
 
     private void updateDescription() {
-        Component mode = message(volumeMode
-                ? "screen.colonycamera.selection.mode.volume" : "screen.colonycamera.selection.mode.similar");
+        Component mode = message(switch (state.mode()) {
+            case SINGLE -> "screen.colonycamera.selection.mode.single";
+            case SIMILAR -> "screen.colonycamera.selection.mode.similar";
+            case VOLUME -> "screen.colonycamera.selection.mode.volume";
+        });
         Component append = message(state.additive()
                 ? "screen.colonycamera.selection.add.on" : "screen.colonycamera.selection.add.off");
         description = message("screen.colonycamera.selection.summary", state.size(), mode, append);
@@ -603,7 +626,7 @@ public final class BlockSelectionController {
             description = Objects.requireNonNull(description.copy().append(" | ").append(message("screen.colonycamera.selection.height",
                     Math.abs(heightPointer.offset()) + 1, message(heightPointer.offset() >= 0
                             ? "screen.colonycamera.selection.outward" : "screen.colonycamera.selection.inward"))));
-        } else if (volumeMode && volumeScan == null && similarScan == null) {
+        } else if (volumeMode() && volumeScan == null && similarScan == null) {
             description = Objects.requireNonNull(description.copy().append(" | ").append(message("screen.colonycamera.selection.base")));
         }
         if (!status.getString().isEmpty()) {
@@ -614,6 +637,7 @@ public final class BlockSelectionController {
 
     private void setStatus(@Nonnull String key, @Nonnull Object... arguments) {
         status = message(key, arguments);
+        statusTime = System.nanoTime();
         updateDescription();
     }
 
@@ -857,7 +881,7 @@ public final class BlockSelectionController {
     }
 
     private record Action(double x, double y, SelectionState.Cuboid bounds, boolean additive, FrameView view,
-                          int similarLimit) {}
+                          @Nonnull SelectionState.Mode mode, int similarLimit) {}
     private static final class SimilarTask {
         private final WorldView world;
         private final BlockHitResult hit;

@@ -8,10 +8,11 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class StrategyHudLayoutTest {
     @Test
-    void similarAndVolumeToolsHaveASeparateLimitEntryWithoutCoveringTheSceneCenter() {
+    void allThreeSelectionToolsHaveSeparateEntriesWithoutCoveringTheSceneCenter() {
         StrategyHudLayout layout = new StrategyHudLayout(320, 180);
-        assertEquals(StrategyHudLayout.Action.SIMILAR, layout.controls().get(0).action());
-        assertEquals(StrategyHudLayout.Action.VOLUME, layout.controls().get(1).action());
+        assertEquals(StrategyHudLayout.Action.SINGLE, layout.controls().get(0).action());
+        assertEquals(StrategyHudLayout.Action.SIMILAR, layout.controls().get(1).action());
+        assertEquals(StrategyHudLayout.Action.VOLUME, layout.controls().get(2).action());
         assertEquals(1, layout.controls().stream().filter(c -> c.action() == StrategyHudLayout.Action.SIMILAR_LIMIT).count());
         assertFalse(layout.blocksWorld(160, 90, false));
     }
@@ -56,7 +57,7 @@ class StrategyHudLayoutTest {
     @Test
     void adjoiningToolsHaveUnambiguousEdges() {
         StrategyHudLayout layout = new StrategyHudLayout(320, 180);
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 9; i++) {
             StrategyHudLayout.Control current = layout.controls().get(i);
             StrategyHudLayout.Control next = layout.controls().get(i + 1);
             assertEquals(current.bounds().right(), next.bounds().x());
@@ -70,10 +71,22 @@ class StrategyHudLayoutTest {
         StrategyHudLayout layout = new StrategyHudLayout(640, 360);
         assertNull(layout.actionAt(layout.dock().x() + 1, layout.dock().y() + 1));
         assertTrue(layout.blocksWorld(layout.dock().x() + 1, layout.dock().y() + 1, false));
-        for (StrategyHudLayout.Rect panel : new StrategyHudLayout.Rect[] {layout.title(), layout.selection(), layout.hint()}) {
+        for (StrategyHudLayout.Rect panel : new StrategyHudLayout.Rect[] {layout.selection(), layout.hint()}) {
             assertTrue(layout.blocksWorld(panel.x() + 2, panel.y() + 2, false));
             assertNull(layout.actionAt(panel.x() + 2, panel.y() + 2));
         }
+    }
+    @Test
+    void hiddenSelectionAndIdleHintDoNotLeaveInvisibleInputObstacles() {
+        var layout = new StrategyHudLayout(640, 360);
+        for (var panel : java.util.List.of(layout.selection(), layout.hint())) {
+            assertFalse(layout.blocksWorld(panel.x() + 2, panel.y() + 2, false, false, false));
+            assertTrue(layout.blocksWorld(panel.x() + 2, panel.y() + 2, false, true, true));
+        }
+        assertTrue(layout.blocksWorld(layout.dock().x() + 2, layout.dock().y() + 2, false, false, false));
+        assertTrue(layout.blocksWorld(320, 180, true, false, false));
+        assertTrue(layout.dock().height() <= 28);
+        assertTrue(layout.selection().height() <= 20);
     }
 
     @Test
@@ -108,7 +121,7 @@ class StrategyHudLayoutTest {
 
     private static void assertInside(StrategyHudLayout layout, int width, int height) {
         var rectangles = new ArrayList<>(layout.controls().stream().map(control -> control.bounds()).toList());
-        rectangles.addAll(java.util.List.of(layout.title(), layout.selection(), layout.dock(), layout.hint(), layout.help(), layout.similarLimitDialog()));
+        rectangles.addAll(java.util.List.of(layout.selection(), layout.dock(), layout.hint(), layout.help(), layout.similarLimitDialog()));
         for (StrategyHudLayout.Rect rect : rectangles) {
             assertTrue(rect.x() >= 0 && rect.y() >= 0 && rect.width() >= 0 && rect.height() >= 0, rect.toString());
             assertTrue(rect.right() <= width && rect.bottom() <= height, rect.toString());

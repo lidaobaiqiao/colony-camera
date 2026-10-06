@@ -4,6 +4,7 @@ import com.mojang.authlib.GameProfile;
 import dev.colony.camera.ColonyCamera;
 import dev.colony.camera.content.ColonyContent;
 import dev.colony.camera.content.MachineBlockEntity;
+import dev.colony.camera.construction.BuildCatalogService;
 import dev.colony.camera.resources.ReservationLedger;
 import dev.colony.camera.storage.StorageAccess;
 import dev.colony.camera.worker.ColonyEntities;
@@ -33,6 +34,45 @@ import java.util.function.Consumer;
 @PrefixGameTestTemplate(false)
 public final class SweepGameTests {
     private record Scene(FakePlayer player, WorkerEntity worker, MachineBlockEntity warehouse) {}
+
+    @GameTest(template = "construction", timeoutTicks = 20, batch = "sweep_regression")
+    public static void legacyConstructionCargoIsNotClaimedByAnEmptySweep(GameTestHelper helper) {
+        Scene scene = scene(helper);
+        ColonyJob sweep = queue(helper, scene);
+        BuildCatalogService.place(Objects.requireNonNull(scene.player), Objects.requireNonNull(UUID.randomUUID()),
+                Objects.requireNonNull(Items.DIRT), Objects.requireNonNull(helper.absolutePos(new BlockPos(8, 1, 8))), 0, "", null);
+        scene.worker.setItemSlot(net.minecraft.world.entity.EquipmentSlot.MAINHAND, new ItemStack(Objects.requireNonNull(Items.DIRT)));
+        WorkTask stolen = SweepService.assign(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker),
+                Objects.requireNonNull(sweep), new ReservationLedger(), helper.getLevel().getGameTime());
+        helper.assertTrue(stolen == null && sweep.finished(), "An empty sweep claimed a construction delivery and stayed active");
+        helper.assertTrue(scene.worker.getMainHandItem().getCount() == 1, "Legacy carried construction material was changed");
+        scene.worker.discard();
+        helper.succeed();
+    }
+
+    @GameTest(template = "construction", timeoutTicks = 20, batch = "sweep_regression")
+    public static void pausedConstructionKeepsCargoAndCancelledConstructionCanReturnIt(GameTestHelper helper) {
+        Scene scene = scene(helper); UUID project = Objects.requireNonNull(UUID.randomUUID());
+        var manager = dev.colony.camera.construction.ConstructionManager.get(Objects.requireNonNull(helper.getLevel()));
+        BuildCatalogService.place(Objects.requireNonNull(scene.player), project, Objects.requireNonNull(Items.DIRT),
+                Objects.requireNonNull(helper.absolutePos(new BlockPos(8, 1, 8))), 0, "", null);
+        helper.assertTrue(manager.project(project) != null, "Construction was not created");
+        scene.worker.setItemSlot(net.minecraft.world.entity.EquipmentSlot.MAINHAND, new ItemStack(Objects.requireNonNull(Items.DIRT)));
+        scene.worker.cargoTask(project); manager.update(Objects.requireNonNull(scene.player.getUUID()), project, "pause", 0);
+        ColonyJob paused = Objects.requireNonNull(standalone(helper, scene));
+        helper.assertTrue(SweepService.assign(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), paused,
+                new ReservationLedger(), helper.getLevel().getGameTime()) == null && scene.worker.getMainHandItem().getCount() == 1,
+                "Sweep took material from a paused construction project");
+        manager.update(Objects.requireNonNull(scene.player.getUUID()), project, "cancel", 0);
+        ColonyJob cancelled = Objects.requireNonNull(standalone(helper, scene)); var ledger = new ReservationLedger();
+        WorkTask delivery = Objects.requireNonNull(SweepService.assign(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker),
+                cancelled, ledger, helper.getLevel().getGameTime()));
+        helper.assertTrue(SweepService.execute(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), cancelled, delivery, ledger, helper.getLevel().getGameTime())
+                && scene.worker.getMainHandItem().isEmpty() && scene.worker.cargoTask() == null
+                && StorageAccess.at(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.warehouse.getBlockPos()), Objects.requireNonNull(scene.player.getUUID())).count(new ItemStack(Objects.requireNonNull(Items.DIRT))) == 1,
+                "Cancelled construction material could not be returned without loss");
+        scene.worker.discard(); helper.succeed();
+    }
 
     @GameTest(template = "construction", timeoutTicks = 450)
     public static void selectedGroundCargoReachesFiniteWarehouseWithTags(GameTestHelper helper) {

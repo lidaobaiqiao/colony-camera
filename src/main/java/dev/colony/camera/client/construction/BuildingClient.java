@@ -27,6 +27,7 @@ public final class BuildingClient {
     @Nullable private static UUID placementRequest;
     private static long lastRequest;
     private static long placementTime;
+    private static long noticeTime;
     private static boolean ready;
     private static int revision;
     @Nonnull private static Component notice = Objects.requireNonNull(Component.empty());
@@ -35,6 +36,8 @@ public final class BuildingClient {
     public static int revision() { return revision; }
     public static boolean pending() { return placementRequest != null; }
     @Nonnull public static Component notice() { return notice; }
+    public static boolean recentNotice() { return !notice.getString().isEmpty() && (pending() || System.nanoTime() - noticeTime < 4_000_000_000L); }
+    private static void notice(Component value) { notice = value; noticeTime = System.nanoTime(); }
     @Nullable public static BuildCatalogService.Entry entry(String id) { return entries.get(id); }
     public static void refresh() {
         ClientLevel current = Minecraft.getInstance().level; if (current == null) return;
@@ -45,9 +48,9 @@ public final class BuildingClient {
     }
     public static boolean place(String item, ProjectionPlacement placement) {
         if (pending()) return false;
-        if (!ready) { notice = text("loading"); refresh(); return false; }
+        if (!ready) { notice(text("loading")); refresh(); return false; }
         var value = entries.get(item); String recipe = value == null || value.available() > 0 ? "" : value.recipe();
-        placementRequest = placement.id(); placementTime = System.nanoTime(); notice = text("sending");
+        placementRequest = placement.id(); placementTime = System.nanoTime(); notice(text("sending"));
         BuildNetwork.CHANNEL.sendToServer(new BuildNetwork.Request(placement.id(), true, item, new BlockPos(placement.x(), placement.y(), placement.z()), placement.quarterTurns(), recipe, value == null ? null : value.station()));
         return true;
     }
@@ -60,7 +63,7 @@ public final class BuildingClient {
     @SubscribeEvent public static void reply(BuildNetwork.ReplyEvent event) {
         var current = Minecraft.getInstance().level;
         if (current == null || !current.dimension().location().toString().equals(event.value.dimension()) || !event.value.id().equals(placementRequest)) return;
-        placementRequest = null; notice = event.value.notice();
+        placementRequest = null; notice(event.value.notice());
         if (event.value.accepted()) ProjectionController.instance().placedBlock(event.value.id());
         lastRequest = 0; refresh();
     }
@@ -68,7 +71,7 @@ public final class BuildingClient {
         if (event.phase != TickEvent.Phase.END) return;
         var current = Minecraft.getInstance().level;
         if (current != level) { level = current; entries.clear(); ready = false; catalogRequest = placementRequest = null; lastRequest = 0; notice = Objects.requireNonNull(Component.empty()); revision++; }
-        if (pending() && System.nanoTime() - placementTime > 15_000_000_000L) { placementRequest = null; notice = text("timeout"); ConstructionClient.refresh(); }
+        if (pending() && System.nanoTime() - placementTime > 15_000_000_000L) { placementRequest = null; notice(text("timeout")); ConstructionClient.refresh(); }
     }
     @Nonnull private static Component text(String key) { return Objects.requireNonNull(Component.translatable("screen.colonycamera.build." + key)); }
 }

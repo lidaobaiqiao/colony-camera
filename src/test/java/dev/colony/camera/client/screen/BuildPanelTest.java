@@ -29,6 +29,7 @@ class BuildPanelTest {
     @Test void gridCentersAndRightBottomEdgesResolveToTheRenderedItemAfterScrolling() {
         for (int[] size : new int[][] {{320, 180}, {400, 225}, {640, 360}, {854, 480}}) {
             var layout = new BuildPanelLayout(size[0], size[1], size[1] - 68);
+            assertTrue(layout.rows > 0, "The smallest supported GUI must still show buildable blocks");
             for (int i = 0; i < layout.columns * layout.rows; i++) {
                 var cell = layout.cell(i);
                 assertEquals(i + 3 * layout.columns, layout.rowAt(cell.x() + cell.width() / 2.0, cell.y() + 5, 3));
@@ -40,8 +41,39 @@ class BuildPanelTest {
     @Test void allPanelControlsStayInsideDuringTinyResizeAndCommonScales() {
         for (int[] size : new int[][] {{1, 1}, {16, 7}, {100, 80}, {320, 180}, {480, 270}, {854, 480}}) {
             var layout = new BuildPanelLayout(size[0], size[1], Math.max(0, size[1] - 68));
-            for (var rect : List.of(layout.panel, layout.grid, layout.search, layout.detail, layout.choose, layout.favorite, layout.available, layout.close, layout.refresh, layout.draft)) {
+            var controls = new java.util.ArrayList<>(List.of(layout.panel, layout.grid, layout.search, layout.category, layout.detail, layout.choose, layout.favorite, layout.available, layout.close, layout.refresh, layout.draft));
+            for (int i = 0; i < 5; i++) controls.add(layout.draftControl(i));
+            for (int i = 0; i < 7; i++) controls.add(layout.category(i, 7));
+            for (var rect : controls) {
                 assertTrue(rect.width() >= 0 && rect.height() >= 0 && rect.x() >= 0 && rect.y() >= 0 && rect.right() <= size[0] && rect.bottom() <= size[1], rect.toString());
+            }
+        }
+    }
+    @Test void sidebarLeavesTheSceneCenterAndMostOfTheViewportAvailable() {
+        for (int[] size : new int[][] {{320, 180}, {480, 270}, {640, 360}, {854, 480}}) {
+            var hud = new StrategyHudLayout(size[0], size[1]);
+            var layout = new BuildPanelLayout(size[0], size[1], hud.dock().y() - 4);
+            assertTrue(layout.panel.width() <= size[0] * 0.4);
+            assertFalse(layout.panel.contains(size[0] / 2.0, size[1] / 2.0));
+            assertTrue(layout.panel.bottom() <= hud.dock().y());
+            assertTrue(layout.draft.height() <= 26);
+            assertTrue(layout.draft.bottom() < hud.dock().y());
+            for (int i = 0; i < 5; i++) {
+                var control = layout.draftControl(i);
+                assertTrue(control.x() >= layout.draft.x() && control.right() <= layout.draft.right());
+                assertTrue(control.y() >= layout.draft.y() && control.bottom() <= layout.draft.bottom());
+                if (i > 0) assertEquals(layout.draftControl(i - 1).right(), control.x());
+            }
+        }
+    }
+    @Test void categoryPopupFitsInsideTheSidebarAndCannotOverlapItsTrigger() {
+        for (int[] size : new int[][] {{320, 180}, {640, 360}}) {
+            var layout = new BuildPanelLayout(size[0], size[1], size[1] - 40);
+            for (int i = 0; i < 7; i++) {
+                var option = layout.category(i, 7);
+                assertTrue(option.height() >= 9);
+                assertTrue(option.y() >= layout.category.bottom() && option.bottom() <= layout.panel.bottom());
+                assertTrue(option.x() >= layout.panel.x() && option.right() <= layout.panel.right());
             }
         }
     }

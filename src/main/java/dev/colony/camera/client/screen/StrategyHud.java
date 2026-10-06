@@ -3,6 +3,7 @@ package dev.colony.camera.client.screen;
 import dev.colony.camera.client.camera.StrategyCameraController;
 import dev.colony.camera.client.input.CameraKeyMappings;
 import dev.colony.camera.client.selection.BlockSelectionController;
+import dev.colony.camera.client.selection.SelectionState;
 import dev.colony.camera.client.planning.ProjectionController;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -32,7 +33,7 @@ final class StrategyHud {
     void resize(int width, int height) {
         layout = new StrategyHudLayout(width, height);
         helpRows = List.of(
-                new HelpRow(text("mouse.left"), text("help.similar")),
+                new HelpRow(text("mouse.left"), text("help.selection")),
                 new HelpRow(text("mouse.left"), text("help.volume")),
                 new HelpRow(text("mouse.right"), text("help.pan")),
                 new HelpRow(text("mouse.middle"), text("help.rotate")),
@@ -52,12 +53,19 @@ final class StrategyHud {
     boolean helpOpen() { return helpOpen; }
     void toggleHelp() { helpOpen = !helpOpen; }
     void closeHelp() { helpOpen = false; }
+    boolean blocksWorld(double x, double y, StrategyCameraController controller, boolean sidebarOpen) {
+        return layout != null && layout.blocksWorld(x, y, helpOpen, !sidebarOpen && selectionVisible(controller.selection()), !sidebarOpen && hintVisible(controller.selection()));
+    }
+    private boolean selectionVisible(BlockSelectionController selection) { return selection.selectionCount() > 0 && ProjectionController.instance().draft() == null; }
+    private boolean hintVisible(BlockSelectionController selection) {
+        var planning = ProjectionController.instance();
+        return !planning.blockDraft() && (planning.draft() != null || planning.recentStatus() || selection.recentStatus() || selection.working() || selection.selectingHeight());
+    }
 
     void render(GuiGraphics graphics, @Nonnull Font font, StrategyCameraController controller, int mouseX, int mouseY,
-                int width, int height) {
+                int width, int height, boolean sidebarOpen) {
         BlockSelectionController selection = controller.selection();
-        drawTitle(graphics, font);
-        if (ProjectionController.instance().draft() == null) drawSelection(graphics, font, selection);
+        if (!sidebarOpen && selectionVisible(selection)) drawSelection(graphics, font, selection);
         panel(graphics, layout.dock());
         for (StrategyHudLayout.Control control : layout.controls()) {
             drawControl(graphics, font, control, controller, !helpOpen && control.bounds().contains(mouseX, mouseY));
@@ -65,60 +73,36 @@ final class StrategyHud {
         ProjectionController planning = ProjectionController.instance();
         Component hint = planning.draft() != null || planning.recentStatus() ? planning.status() : hint(selection);
         StrategyHudLayout.Rect hintBounds = layout.hint();
-        panel(graphics, hintBounds);
-        graphics.fill(hintBounds.x() + 1, hintBounds.y() + 3, hintBounds.x() + 3, hintBounds.bottom() - 3,
-                0xFF000000 | (selection.statusMessage().getString().isEmpty() ? ACCENT : GOLD));
-        drawFitted(graphics, font, hint, hintBounds.x() + 9, hintBounds.y() + 6, hintBounds.width() - 18,
-                selection.statusMessage().getString().isEmpty() ? MUTED : GOLD);
+        if (!sidebarOpen && hintVisible(selection)) {
+            panel(graphics, hintBounds);
+            graphics.fill(hintBounds.x() + 1, hintBounds.y() + 3, hintBounds.x() + 3, hintBounds.bottom() - 3,
+                    0xFF000000 | (selection.recentStatus() ? GOLD : ACCENT));
+            drawFitted(graphics, font, hint, hintBounds.x() + 9, hintBounds.y() + 6, hintBounds.width() - 18, selection.recentStatus() ? GOLD : MUTED);
+        }
         if (helpOpen) {
             drawHelp(graphics, font, mouseX, mouseY, width, height);
         } else {
             StrategyHudLayout.Action action = layout.actionAt(mouseX, mouseY);
             if (action != null) {
                 drawTooltip(graphics, font, List.of(tooltip(action, controller)), mouseX, mouseY, width);
-            } else if (layout.hint().contains(mouseX, mouseY)) {
+            } else if (!sidebarOpen && hintVisible(selection) && layout.hint().contains(mouseX, mouseY)) {
                 drawTooltip(graphics, font, List.of(hint), mouseX, mouseY, width);
-            } else if (layout.selection().contains(mouseX, mouseY) && selection.selectionCount() == 1) {
+            } else if (!sidebarOpen && selectionVisible(selection) && layout.selection().contains(mouseX, mouseY) && selection.selectionCount() == 1) {
                 drawTooltip(graphics, font, List.of(selection.selectedName(), selection.selectedCoordinates()), mouseX, mouseY, width);
             }
         }
     }
 
-    private void drawTitle(GuiGraphics graphics, @Nonnull Font font) {
-        StrategyHudLayout.Rect bounds = layout.title();
-        panel(graphics, bounds);
-        icon(graphics, StrategyHudLayout.Action.VOLUME, bounds.x() + 8, bounds.y() + 9, ACCENT, false);
-        drawFitted(graphics, font, text("title"), bounds.x() + 29, bounds.y() + 6, bounds.width() - 35, TEXT);
-        drawFitted(graphics, font, text("subtitle"), bounds.x() + 29, bounds.y() + 19, bounds.width() - 35, MUTED);
-    }
-
     private void drawSelection(GuiGraphics graphics, @Nonnull Font font, BlockSelectionController selection) {
         StrategyHudLayout.Rect bounds = layout.selection();
-        if (bounds.height() < 40) {
-            return;
-        }
+        if (bounds.height() < 12) return;
         panel(graphics, bounds);
-        drawFitted(graphics, font, text("selection"), bounds.x() + 10, bounds.y() + 8, bounds.width() - 58, MUTED);
-        Component mode = text(selection.volumeMode() ? "tool.volume" : "tool.similar");
-        int modeWidth = font.width(mode);
-        graphics.drawString(font, mode, bounds.right() - modeWidth - 10, bounds.y() + 8, ACCENT, false);
-        graphics.pose().pushPose();
-        graphics.pose().translate(bounds.x() + 10, bounds.y() + 22, 0);
-        graphics.pose().scale(1.8F, 1.8F, 1);
-        graphics.drawString(font, Objects.requireNonNull(Integer.toString(selection.selectionCount())), 0, 0,
-                selection.selectionCount() == 0 ? MUTED : GOLD, false);
-        graphics.pose().popPose();
-        graphics.drawString(font, text("blocks"), bounds.x() + 64, bounds.y() + 28, MUTED, false);
-        if (bounds.height() >= 54) {
-            Component detail = selection.selectionCount() == 1 ? selection.selectedName()
-                    : text(selection.selectionCount() == 0 ? "empty" : "selected");
-            drawFitted(graphics, font, detail, bounds.x() + 10, bounds.y() + 41, bounds.width() - 20, TEXT);
-        }
-        if (bounds.height() >= 66) {
-            Component detail = selection.selectionCount() == 1 ? selection.selectedCoordinates()
-                    : text(selection.additive() ? "add.on" : "add.off");
-            drawFitted(graphics, font, detail, bounds.x() + 10, bounds.y() + 54, bounds.width() - 20, MUTED);
-        }
+        Component mode = text(switch (selection.mode()) {
+            case SINGLE -> "tool.single";
+            case SIMILAR -> "tool.similar";
+            case VOLUME -> "tool.volume";
+        });
+        drawFitted(graphics, font, text("selection_count", mode, selection.selectionCount()), bounds.x() + 7, bounds.y() + 6, bounds.width() - 14, GOLD);
     }
 
     private void drawControl(GuiGraphics graphics, @Nonnull Font font, StrategyHudLayout.Control control,
@@ -126,12 +110,13 @@ final class StrategyHud {
         StrategyHudLayout.Rect bounds = control.bounds();
         StrategyHudLayout.Action action = control.action();
         boolean tool = switch (action) {
-            case SIMILAR, VOLUME, ADDITIVE, CLEAR, SAVE_PRESET, LIBRARY, WORK, SIMILAR_LIMIT, BUILD -> true;
+            case SINGLE, SIMILAR, VOLUME, ADDITIVE, CLEAR, SAVE_PRESET, LIBRARY, WORK, SIMILAR_LIMIT, BUILD -> true;
             default -> false;
         };
         boolean active = switch (action) {
-            case SIMILAR -> !controller.selection().volumeMode();
-            case VOLUME -> controller.selection().volumeMode();
+            case SINGLE -> ProjectionController.instance().draft() == null && controller.selection().mode() == SelectionState.Mode.SINGLE;
+            case SIMILAR -> ProjectionController.instance().draft() == null && controller.selection().mode() == SelectionState.Mode.SIMILAR;
+            case VOLUME -> ProjectionController.instance().draft() == null && controller.selection().volumeMode();
             case ADDITIVE -> controller.selection().additive();
             case ANGLE_LOCK -> controller.angleLocked();
             case HELP -> helpOpen;
@@ -145,15 +130,10 @@ final class StrategyHud {
                     hovered ? HOVER : ACTIVE);
         }
         int color = active ? ACCENT : hovered ? TEXT : MUTED;
-        boolean compact = tool && bounds.width() < 60;
-        if (!compact) {
-            icon(graphics, action, bounds.x() + (tool ? 8 : (bounds.width() - 14) / 2),
-                    bounds.y() + (tool ? 7 : (bounds.height() - 14) / 2), color, controller.angleLocked());
-        }
+        if (!tool) icon(graphics, action, bounds.x() + (bounds.width() - 14) / 2,
+                bounds.y() + (bounds.height() - 14) / 2, color, controller.angleLocked());
         if (tool) {
-            int inset = compact ? 5 : 27;
-            drawFitted(graphics, font, label(action), bounds.x() + inset, bounds.y() + 6, bounds.width() - inset - 4, color);
-            drawFitted(graphics, font, binding(action), bounds.x() + inset, bounds.y() + 22, bounds.width() - inset - 4, MUTED);
+            drawFitted(graphics, font, label(action), bounds.x() + 4, bounds.y() + Math.max(0, (bounds.height() - 9) / 2), bounds.width() - 8, color);
         }
         if (active) {
             graphics.fill(bounds.x() + 5, bounds.bottom() - 3, bounds.right() - 5, bounds.bottom() - 2,
@@ -189,7 +169,7 @@ final class StrategyHud {
 
     @Nonnull
     private Component hint(BlockSelectionController selection) {
-        if (!selection.statusMessage().getString().isEmpty()) {
+        if (selection.recentStatus()) {
             return selection.statusMessage();
         }
         if (selection.working()) {
@@ -199,7 +179,11 @@ final class StrategyHud {
             return text("hint.height", selection.heightLayers(), Component.translatable(selection.heightOutward()
                     ? "screen.colonycamera.selection.outward" : "screen.colonycamera.selection.inward"));
         }
-        return selection.volumeMode() ? text("hint.volume") : text("hint.similar", dev.colony.camera.config.SelectionConfig.similarLimit());
+        return switch (selection.mode()) {
+            case SINGLE -> text("hint.single");
+            case SIMILAR -> text("hint.similar", dev.colony.camera.config.SelectionConfig.similarLimit());
+            case VOLUME -> text("hint.volume");
+        };
     }
 
     @Nonnull
@@ -224,7 +208,7 @@ final class StrategyHud {
     @Nonnull
     private Component binding(StrategyHudLayout.Action action) {
         return switch (action) {
-            case SIMILAR -> text("mouse.left.short");
+            case SINGLE, SIMILAR -> text("mouse.left.short");
             case SIMILAR_LIMIT -> Objects.requireNonNull(Component.literal(Objects.requireNonNull(Integer.toString(dev.colony.camera.config.SelectionConfig.similarLimit()))));
             case VOLUME -> CameraKeyMappings.volumeSelectionKeyName();
             case ADDITIVE -> CameraKeyMappings.addSelectionKeyName();
@@ -277,6 +261,13 @@ final class StrategyHud {
     private static void icon(GuiGraphics graphics, StrategyHudLayout.Action action, int x, int y, int color, boolean locked) {
         int ink = 0xFF000000 | color;
         switch (action) {
+            case SINGLE -> {
+                line(graphics, x + 2, y + 2, x + 12, y + 2, ink);
+                line(graphics, x + 12, y + 2, x + 12, y + 12, ink);
+                line(graphics, x + 12, y + 12, x + 2, y + 12, ink);
+                line(graphics, x + 2, y + 12, x + 2, y + 2, ink);
+                graphics.fill(x + 6, y + 6, x + 9, y + 9, ink);
+            }
             case SIMILAR -> {
                 line(graphics, x, y + 7, x + 7, y + 3, ink);
                 line(graphics, x + 7, y + 3, x + 14, y + 7, ink);

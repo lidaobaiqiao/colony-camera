@@ -225,6 +225,7 @@ public final class ConstructionManager extends SavedData {
                 } else next.deadline = previous.deadline;
                 worker.assignment = next;
                 worker.workTask = null;
+                if (next.source == null) worker.cargoTask(project.id());
                 project.reason = next.source != null ? "collecting" : "building";
                 activeReason = project.reason;
             }
@@ -234,6 +235,27 @@ public final class ConstructionManager extends SavedData {
         for (WorkerEntity worker : workers) if (!assigned.contains(worker.getUUID())) {
             worker.assignment = null; worker.workTask = null; worker.getNavigation().stop();
         }
+    }
+    /** Recover untagged pre-1.6.1 deliveries before an older sweep can take them. */
+    public boolean recoverConstructionCargo(WorkerEntity worker) {
+        ItemStack held = Objects.requireNonNull(worker.getMainHandItem());
+        if (held.isEmpty()) return false;
+        UUID taskId = worker.cargoTask();
+        ConstructionProject tagged = taskId == null ? null : projects.get(taskId);
+        if (tagged != null && tagged.owner.equals(worker.owner()) && !tagged.cancelled && !tagged.finished()) return true;
+        if (taskId != null) return false;
+        for (ConstructionProject project : projects.values()) {
+            if (!project.owner.equals(worker.owner()) || project.cancelled || project.finished()) continue;
+            for (int index = 0; index < project.plan.units().size(); index++) {
+                if (project.completed.get(index)) continue;
+                BuildPlan.Unit unit = Objects.requireNonNull(project.plan.units().get(index));
+                if (held.getCount() >= unit.count() && GroundResources.matches(held, unit.item())
+                        && worker.distanceToSqr(GroundResources.center(unit.anchor())) <= (long) WorkerEntity.NAVIGATION_RANGE * WorkerEntity.NAVIGATION_RANGE) {
+                    worker.cargoTask(project.id()); return true;
+                }
+            }
+        }
+        return false;
     }
     @Nullable private Assignment findAssignment(ServerLevel level, WorkerEntity worker, ConstructionProject project,
             @Nullable Assignment previous, Set<String> claimed, long time) {
@@ -247,7 +269,7 @@ public final class ConstructionManager extends SavedData {
             if (matching(level, unit)) { project.completed.set(index); setDirty(); continue; }
             project.neededItem = Objects.requireNonNull(Objects.requireNonNull(net.minecraftforge.registries.ForgeRegistries.ITEMS.getKey(unit.item())).toString());
             project.neededCount = unit.count();
-            String problem = problem(level, unit);
+            String problem = problem(level, unit, project.palette);
             if (!problem.isEmpty()) { project.reason = problem; continue; }
             ItemStack carried = Objects.requireNonNull(worker.getMainHandItem());
             boolean carrying = GroundResources.matches(carried, unit.item()) && carried.getCount() >= unit.count();
@@ -312,7 +334,7 @@ public final class ConstructionManager extends SavedData {
         }
         BuildPlan.Unit unit = Objects.requireNonNull(project.plan.units().get(task.unit));
         if (matching(level, unit)) { project.completed.set(task.unit); setDirty(); release(worker); reallocate = true; return; }
-        String blocked = problem(level, unit);
+        String blocked = problem(level, unit, project.palette);
         if (!blocked.isEmpty()) { project.reason = blocked; release(worker); reallocate = true; return; }
         StorageResources.Claim storageTask = task.storage;
         if (storageTask != null) {
@@ -329,6 +351,7 @@ public final class ConstructionManager extends SavedData {
             ItemStack taken = source.take(unit.count());
             if (taken.isEmpty()) { release(worker); reallocate = true; return; }
             worker.setItemSlot(EquipmentSlot.MAINHAND, taken); ledger.release(worker.getUUID()); task.storage = null; task.source = null;
+            worker.cargoTask(project.id());
             task.deadline = time + 240; GroundResources.follow(level, worker, delivery); project.reason = "transporting"; return;
         }
         UUID sourceId = task.source;
@@ -354,6 +377,7 @@ public final class ConstructionManager extends SavedData {
             ItemStack remaining = source.getItem().copy(); remaining.shrink(unit.count());
             if (remaining.isEmpty()) source.discard(); else source.setItem(remaining);
             worker.setItemSlot(EquipmentSlot.MAINHAND, taken);
+            worker.cargoTask(project.id());
             ledger.release(worker.getUUID()); task.source = null; task.deadline = time + 240;
             GroundResources.follow(level, worker, delivery); project.reason = "transporting";
             return;
@@ -367,7 +391,10 @@ public final class ConstructionManager extends SavedData {
         }
         if (place(level, worker, project, unit)) {
             worker.getMainHandItem().shrink(unit.count());
-            if (worker.getMainHandItem().isEmpty()) worker.setItemSlot(EquipmentSlot.MAINHAND, Objects.requireNonNull(ItemStack.EMPTY));
+            if (worker.getMainHandItem().isEmpty()) {
+                worker.setItemSlot(EquipmentSlot.MAINHAND, Objects.requireNonNull(ItemStack.EMPTY));
+                worker.cargoTask(null);
+            }
             worker.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
             project.completed.set(task.unit); setDirty(); release(worker); reallocate = true;
             if (project.finished()) project.reason = "complete";
@@ -425,11 +452,11 @@ public final class ConstructionManager extends SavedData {
     private static boolean matching(ServerLevel level, BuildPlan.Unit unit) {
         return unit.blocks().stream().allMatch(block -> GroundResources.loaded(level, block.pos()) && level.getBlockState(block.pos()).equals(block.state()));
     }
-    @Nonnull private static String problem(ServerLevel level, BuildPlan.Unit unit) {
+    @Nonnull private static String problem(ServerLevel level, BuildPlan.Unit unit, boolean palette) {
         for (var block : unit.blocks()) {
             if (!GroundResources.loaded(level, block.pos())) return "unloaded";
             var current = level.getBlockState(block.pos());
-            if (!current.isAir() && !current.equals(block.state())) return "conflict";
+            if (!(palette ? BlockBuilding.canReplace(Objects.requireNonNull(current)) : current.isAir()) && !current.equals(block.state())) return "conflict";
         }
         if (!unit.blocks().get(0).state().canSurvive(level, unit.anchor())) return "support";
         return "";
@@ -473,7 +500,10 @@ public final class ConstructionManager extends SavedData {
     private void release(WorkerEntity worker) { ledger.release(worker.getUUID()); worker.assignment = null; worker.getNavigation().stop(); }
     private static void dropCarried(WorkerEntity worker) {
         ItemStack carried = worker.getMainHandItem();
-        if (!carried.isEmpty() && worker.spawnAtLocation(Objects.requireNonNull(carried.copy())) != null) worker.setItemSlot(EquipmentSlot.MAINHAND, Objects.requireNonNull(ItemStack.EMPTY));
+        if (!carried.isEmpty() && worker.spawnAtLocation(Objects.requireNonNull(carried.copy())) != null) {
+            worker.setItemSlot(EquipmentSlot.MAINHAND, Objects.requireNonNull(ItemStack.EMPTY));
+            worker.cargoTask(null);
+        }
     }
     private boolean usePathBudget() { if (pathBudget <= 0) return false; pathBudget--; return true; }
     public boolean readOnly() { return rejectedData != null; }

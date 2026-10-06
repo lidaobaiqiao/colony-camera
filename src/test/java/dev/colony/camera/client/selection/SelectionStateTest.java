@@ -19,6 +19,49 @@ class SelectionStateTest {
     private static final SelectionState.Cell THIRD = new SelectionState.Cell(7, 6, 2);
 
     @Test
+    void volumeToggleReturnsToTheLastClickTool() {
+        SelectionState state = new SelectionState();
+        assertEquals(SelectionState.Mode.SINGLE, state.mode());
+        state.toggleVolumeMode();
+        assertEquals(SelectionState.Mode.VOLUME, state.mode());
+        state.toggleVolumeMode();
+        assertEquals(SelectionState.Mode.SINGLE, state.mode());
+
+        state.selectMode(SelectionState.Mode.SIMILAR);
+        state.toggleVolumeMode();
+        state.selectMode(SelectionState.Mode.VOLUME);
+        state.toggleVolumeMode();
+        assertEquals(SelectionState.Mode.SIMILAR, state.mode());
+
+        state.selectMode(SelectionState.Mode.SINGLE);
+        state.toggleVolumeMode();
+        state.toggleVolumeMode();
+        assertEquals(SelectionState.Mode.SINGLE, state.mode());
+    }
+
+    @Test
+    void choosingToolsPreservesCommittedCellsAndTheAppendSetting() {
+        SelectionState state = new SelectionState();
+        state.apply(List.of(FIRST));
+        state.toggleAdditive();
+        state.selectMode(SelectionState.Mode.SIMILAR);
+        state.apply(List.of(SECOND));
+        state.selectMode(SelectionState.Mode.VOLUME);
+        state.selectMode(SelectionState.Mode.SINGLE);
+        state.apply(List.of(THIRD));
+        assertEquals(List.of(FIRST, SECOND, THIRD), new ArrayList<>(state.cells()));
+        assertTrue(state.additive());
+
+        state.clear();
+        assertEquals(SelectionState.Mode.SINGLE, state.mode());
+        assertTrue(state.additive());
+        state.toggleAdditive();
+        state.apply(List.of(FIRST));
+        state.apply(List.of(SECOND));
+        assertEquals(Set.of(SECOND), state.cells());
+    }
+
+    @Test
     void normalSelectionReplacesMembershipAndDeduplicatesInInsertionOrder() {
         SelectionState state = new SelectionState();
         assertEquals(new SelectionState.ApplyResult(true, true), state.apply(List.of(FIRST)));
@@ -112,10 +155,16 @@ class SelectionStateTest {
         assertFalse(state.additive());
         state.toggleAdditive();
         state.apply(List.of(FIRST));
+        state.selectMode(SelectionState.Mode.SIMILAR);
+        state.toggleVolumeMode();
 
         state.reset();
         assertEquals(0, state.size());
         assertFalse(state.additive());
+        assertEquals(SelectionState.Mode.SINGLE, state.mode());
+        state.toggleVolumeMode();
+        state.toggleVolumeMode();
+        assertEquals(SelectionState.Mode.SINGLE, state.mode());
     }
 
     @Test

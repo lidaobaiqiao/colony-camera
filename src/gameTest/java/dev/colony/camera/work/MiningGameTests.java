@@ -58,11 +58,11 @@ public final class MiningGameTests {
             helper.assertTrue(job.finished() && helper.getBlockState(new BlockPos(3, 1, 3)).isAir(), "Stone was not mined");
             helper.assertTrue(scene.worker.getOffhandItem().is(Objects.requireNonNull(Items.WOODEN_PICKAXE)) && scene.worker.getOffhandItem().getDamageValue() == 12,
                     "Real tool was not worn exactly once");
-            helper.assertTrue(scene.worker.getMainHandItem().getCount() == 3 && scene.worker.miningXp() == 1, "Mining consumed transport inventory or repeated XP");
+            helper.assertTrue(scene.worker.getMainHandItem().getCount() == 3 && scene.worker.minedBlocks() == 1, "Mining consumed transport inventory or repeated XP");
             helper.assertTrue(drops(helper, Items.COBBLESTONE) == 1, "Normal survival cobblestone drop was lost or duplicated");
             CompoundTag saved = new CompoundTag(); scene.worker.saveWithoutId(saved);
             var restored = Objects.requireNonNull(ColonyEntities.WORKER.get().create(Objects.requireNonNull(helper.getLevel()))); restored.load(saved);
-            helper.assertTrue(restored.miningXp() == 1 && restored.getOffhandItem().getDamageValue() == 12
+            helper.assertTrue(restored.minedBlocks() == 1 && restored.getOffhandItem().getDamageValue() == 12
                     && restored.getMainHandItem().getCount() == 3 && delivery.equals(restored.cargoTask()), "Saved skill/tool/material/cargo owner did not survive loading");
         });
     }
@@ -106,7 +106,7 @@ public final class MiningGameTests {
         ColonyJob job = job(helper, scene, new BlockPos(3, 1, 3));
         helper.assertTrue(MiningService.assign(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), Objects.requireNonNull(job), Objects.requireNonNull(Set.of()), new ReservationLedger(), helper.getLevel().getGameTime()) == null
                 && job.reason.equals("mining_level"), "Level one miner bypassed skill gate");
-        scene.worker.gainMiningExperience(16);
+        scene.worker.state().practice(dev.colony.camera.worker.WorkerAttribute.MINING, dev.colony.camera.worker.WorkerState.TICKS_PER_POINT, 1);
         helper.assertTrue(MiningService.minimumLevel(Objects.requireNonNull(Blocks.IRON_ORE.defaultBlockState())) == 2
                 && MiningService.minimumLevel(Objects.requireNonNull(Blocks.DIAMOND_ORE.defaultBlockState())) == 3
                 && MiningService.minimumLevel(Objects.requireNonNull(Blocks.OBSIDIAN.defaultBlockState())) == 4, "Ore mining grade mapping drifted");
@@ -118,7 +118,7 @@ public final class MiningGameTests {
         WorkTask task = task(helper, scene, job);
         helper.onEachTick(() -> MiningService.execute(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), Objects.requireNonNull(job), Objects.requireNonNull(task), Objects.requireNonNull(scene.ledger), helper.getLevel().getGameTime()));
         helper.succeedWhen(() -> {
-            helper.assertTrue(job.finished() && drops(helper, Items.RAW_IRON) == 1 && scene.worker.miningXp() == 17, "Unlocked trained worker failed to mine correct ore drop");
+            helper.assertTrue(job.finished() && drops(helper, Items.RAW_IRON) == 1 && scene.worker.minedBlocks() == 1, "Unlocked trained worker failed to mine correct ore drop");
             helper.assertTrue(scene.worker.getOffhandItem().getDamageValue() == 1, "Stone pick durability was not charged");
         });
     }
@@ -133,7 +133,7 @@ public final class MiningGameTests {
         try { helper.assertTrue(MiningService.execute(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), Objects.requireNonNull(job), task, Objects.requireNonNull(scene.ledger), helper.getLevel().getGameTime()), "Protected task did not release"); }
         finally { MinecraftForge.EVENT_BUS.unregister(protection); }
         helper.assertTrue(helper.getBlockState(relative).is(Objects.requireNonNull(Blocks.STONE)) && !job.finished() && job.reason.equals("denied"), "Protection was ignored");
-        helper.assertTrue(scene.worker.miningXp() == 0 && scene.worker.getOffhandItem().getDamageValue() == 0 && drops(helper, Items.COBBLESTONE) == 0,
+        helper.assertTrue(scene.worker.minedBlocks() == 0 && scene.worker.getOffhandItem().getDamageValue() == 0 && drops(helper, Items.COBBLESTONE) == 0,
                 "Cancelled break consumed tool or invented XP/material");
         helper.succeed();
     }
@@ -144,7 +144,7 @@ public final class MiningGameTests {
         ColonyJob job = job(helper, scene, relative); WorkTask task = task(helper, scene, job);
         helper.setBlock(relative, Objects.requireNonNull(Blocks.DIAMOND_BLOCK));
         helper.assertTrue(MiningService.execute(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), Objects.requireNonNull(job), Objects.requireNonNull(task), Objects.requireNonNull(scene.ledger), helper.getLevel().getGameTime()) && job.finished()
-                && helper.getBlockState(relative).is(Objects.requireNonNull(Blocks.DIAMOND_BLOCK)) && scene.worker.miningXp() == 0, "Changed player block was destroyed");
+                && helper.getBlockState(relative).is(Objects.requireNonNull(Blocks.DIAMOND_BLOCK)) && scene.worker.minedBlocks() == 0, "Changed player block was destroyed");
         helper.setBlock(relative, Objects.requireNonNull(Blocks.AIR)); ColonyJob empty = job(helper, scene, relative);
         helper.assertTrue(MiningService.assign(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), Objects.requireNonNull(empty), Objects.requireNonNull(Set.of()), new ReservationLedger(), helper.getLevel().getGameTime()) == null
                 && empty.finished(), "A removed selection member remained blocked forever");
@@ -175,7 +175,7 @@ public final class MiningGameTests {
                     "Dispatched volume stalled: " + job.reason + ", worker=" + scene.worker.position());
             helper.assertTrue(warehouse.inventory.getStackInSlot(0).isEmpty() && scene.worker.getOffhandItem().getDamageValue() == 8,
                     "Tool delivery/usage did not preserve physical inventory");
-            helper.assertTrue(scene.worker.miningXp() == 2 && drops(helper, Items.COBBLESTONE) == 2, "Stacked mining lost or duplicated output");
+            helper.assertTrue(scene.worker.minedBlocks() == 2 && drops(helper, Items.COBBLESTONE) == 2, "Stacked mining lost or duplicated output");
         });
     }
 

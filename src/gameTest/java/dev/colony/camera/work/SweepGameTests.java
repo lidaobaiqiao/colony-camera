@@ -67,7 +67,7 @@ public final class SweepGameTests {
         ColonyJob cancelled = Objects.requireNonNull(standalone(helper, scene)); var ledger = new ReservationLedger();
         WorkTask delivery = Objects.requireNonNull(SweepService.assign(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker),
                 cancelled, ledger, helper.getLevel().getGameTime()));
-        helper.assertTrue(SweepService.execute(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), cancelled, delivery, ledger, helper.getLevel().getGameTime())
+        helper.assertTrue(completeAction(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), cancelled, delivery, ledger, helper.getLevel().getGameTime())
                 && scene.worker.getMainHandItem().isEmpty() && scene.worker.cargoTask() == null
                 && StorageAccess.at(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.warehouse.getBlockPos()), Objects.requireNonNull(scene.player.getUUID())).count(new ItemStack(Objects.requireNonNull(Items.DIRT))) == 1,
                 "Cancelled construction material could not be returned without loss");
@@ -123,18 +123,18 @@ public final class SweepGameTests {
         // Force this already reachable pickup to use the physical network port for its deposit.
         task.destination = helper.absolutePos(new BlockPos(4, 1, 4));
         BlockPos portStand = helper.absolutePos(new BlockPos(4, 1, 3));
-        helper.assertTrue(!SweepService.execute(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), Objects.requireNonNull(job), task, ledger, helper.getLevel().getGameTime()) && !item.isAlive()
+        helper.assertTrue(!completeAction(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), Objects.requireNonNull(job), task, ledger, helper.getLevel().getGameTime()) && !item.isAlive()
                 && scene.worker.getMainHandItem().getCount() == 11, "Worker did not physically pick up cargo");
         task.stand = Objects.requireNonNull(portStand); scene.worker.moveTo(portStand.getX() + 0.5, portStand.getY(), portStand.getZ() + 0.5);
         helper.setBlock(new BlockPos(3, 1, 4), Objects.requireNonNull(Blocks.AIR));
-        SweepService.execute(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), Objects.requireNonNull(job), task, ledger, helper.getLevel().getGameTime());
+        completeAction(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), Objects.requireNonNull(job), task, ledger, helper.getLevel().getGameTime());
         helper.assertTrue(scene.worker.getMainHandItem().getCount() == 11 && scene.warehouse.inventory.getStackInSlot(0).isEmpty(),
                 "Disconnect destroyed or teleported held cargo");
         helper.setBlock(new BlockPos(3, 1, 4), Objects.requireNonNull(ColonyContent.CABLE.get()));
         ((MachineBlockEntity) Objects.requireNonNull(helper.getBlockEntity(new BlockPos(3, 1, 4)))).owner(scene.player.getUUID());
         WorkTask resumed = Objects.requireNonNull(SweepService.assign(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), Objects.requireNonNull(job), ledger, helper.getLevel().getGameTime()));
         resumed.stand = portStand; scene.worker.moveTo(portStand.getX() + 0.5, portStand.getY(), portStand.getZ() + 0.5);
-        helper.assertTrue(SweepService.execute(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), Objects.requireNonNull(job), resumed, ledger, helper.getLevel().getGameTime())
+        helper.assertTrue(completeAction(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), Objects.requireNonNull(job), resumed, ledger, helper.getLevel().getGameTime())
                 && scene.worker.getMainHandItem().isEmpty()
                 && StorageAccess.at(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.warehouse.getBlockPos()), Objects.requireNonNull(scene.player.getUUID())).count(new ItemStack(Objects.requireNonNull(Items.IRON_INGOT))) == 11,
                 "Reconnect did not deposit the preserved cargo: reason=" + job.reason + ", network=" + StorageAccess.at(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(task.destination), Objects.requireNonNull(scene.player.getUUID())).status);
@@ -151,7 +151,7 @@ public final class SweepGameTests {
         WorkTask task = Objects.requireNonNull(SweepService.assign(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), Objects.requireNonNull(job), ledger, helper.getLevel().getGameTime()));
         Consumer<EntityItemPickupEvent> protection = event -> { if (event.getItem() == own) event.setCanceled(true); };
         MinecraftForge.EVENT_BUS.addListener(protection);
-        try { helper.assertTrue(SweepService.execute(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), Objects.requireNonNull(job), task, ledger, helper.getLevel().getGameTime()), "Protected pickup did not release"); }
+        try { helper.assertTrue(completeAction(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), Objects.requireNonNull(job), task, ledger, helper.getLevel().getGameTime()), "Protected pickup did not release"); }
         finally { MinecraftForge.EVENT_BUS.unregister(protection); }
         helper.assertTrue(own.isAlive() && own.getItem().getCount() == 8 && foreign.getItem().getCount() == 4 && scene.worker.getMainHandItem().isEmpty(), "Cancelled pickup changed inventory");
         helper.succeed();
@@ -190,7 +190,7 @@ public final class SweepGameTests {
         helper.assertTrue(!job.finished(), "Idle worker marked the job complete before the last cargo was deposited");
         var delivery = Objects.requireNonNull(SweepService.assign(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), job, ledger, helper.getLevel().getGameTime()));
         helper.assertTrue(scene.worker.getMainHandItem().getCount() == 8, "Held cargo did not retain a delivery assignment");
-        helper.assertTrue(SweepService.execute(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), job, delivery, ledger, helper.getLevel().getGameTime())
+        helper.assertTrue(completeAction(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.worker), job, delivery, ledger, helper.getLevel().getGameTime())
                 && scene.worker.getMainHandItem().isEmpty()
                 && StorageAccess.at(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.warehouse.getBlockPos()), Objects.requireNonNull(scene.player.getUUID())).count(new ItemStack(Objects.requireNonNull(Items.DIRT))) == 8,
                 "Last cargo was not physically deposited without loss");
@@ -199,6 +199,12 @@ public final class SweepGameTests {
         idle.discard();
         scene.worker.discard();
         helper.succeed();
+    }
+
+    // Transfer/protection fixtures start with the hauling action already worked; duration is covered in worker-state scenes.
+    private static boolean completeAction(net.minecraft.server.level.ServerLevel level, WorkerEntity worker, ColonyJob job, WorkTask task, ReservationLedger ledger, long time) {
+        task.actionProgress = dev.colony.camera.worker.WorkerEffects.haulTicks(worker.state()) - 1;
+        return SweepService.execute(Objects.requireNonNull(level), worker, Objects.requireNonNull(job), task, Objects.requireNonNull(ledger), time);
     }
 
     private static Scene scene(GameTestHelper helper) {

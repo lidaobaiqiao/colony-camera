@@ -21,7 +21,7 @@ import java.util.Objects;
 
 @ParametersAreNonnullByDefault
 public final class ColonyContent {
-    public enum Kind { PRINTING_CORE, WAREHOUSE, NETWORK_CONTROLLER, NETWORK_PORT, NETWORK_CABLE, COLONY_WORKBENCH, RESEARCH_DESK }
+    public enum Kind { PRINTING_CORE, WAREHOUSE, NETWORK_CONTROLLER, NETWORK_PORT, NETWORK_CABLE, COLONY_WORKBENCH, RESEARCH_DESK, RESIDENCE, ACADEMY }
     @Nonnull public static final DeferredRegister<Block> BLOCKS = Objects.requireNonNull(DeferredRegister.create(ForgeRegistries.BLOCKS, ColonyCamera.ID));
     @Nonnull public static final DeferredRegister<Item> ITEMS = Objects.requireNonNull(DeferredRegister.create(ForgeRegistries.ITEMS, ColonyCamera.ID));
     @Nonnull public static final DeferredRegister<BlockEntityType<?>> ENTITIES = Objects.requireNonNull(DeferredRegister.create(ForgeRegistries.BLOCK_ENTITY_TYPES, ColonyCamera.ID));
@@ -34,13 +34,16 @@ public final class ColonyContent {
     @Nonnull public static final RegistryObject<Block> CABLE = block("network_cable", Kind.NETWORK_CABLE);
     @Nonnull public static final RegistryObject<Block> COLONY_WORKBENCH = block("colony_workbench", Kind.COLONY_WORKBENCH);
     @Nonnull public static final RegistryObject<Block> RESEARCH_DESK = block("research_desk", Kind.RESEARCH_DESK);
+    @Nonnull public static final RegistryObject<Block> RESIDENCE = block("residence", Kind.RESIDENCE);
+    @Nonnull public static final RegistryObject<Block> ACADEMY = block("academy", Kind.ACADEMY);
+    @Nonnull public static final RegistryObject<Item> ACADEMY_UPGRADE = Objects.requireNonNull(ITEMS.register("academy_upgrade", () -> new AcademyUpgradeItem()));
     @Nonnull public static final RegistryObject<Item> CAPACITY_UPGRADE = Objects.requireNonNull(ITEMS.register("capacity_upgrade", () -> new WarehouseUpgradeItem(false)));
     @Nonnull public static final RegistryObject<Item> STACK_UPGRADE = Objects.requireNonNull(ITEMS.register("stack_upgrade", () -> new WarehouseUpgradeItem(true)));
     @Nonnull public static final RegistryObject<BlockEntityType<MachineBlockEntity>> MACHINE = Objects.requireNonNull(ENTITIES.register("machine", ColonyContent::machineType));
     // Forge mod registrations have no vanilla DFU type; the builder accepts null despite its default contract.
     @SuppressWarnings("null")
     @Nonnull private static BlockEntityType<MachineBlockEntity> machineType() {
-        return Objects.requireNonNull(BlockEntityType.Builder.of(MachineBlockEntity::new, Objects.requireNonNull(PRINTING_CORE.get()), Objects.requireNonNull(WAREHOUSE.get()), Objects.requireNonNull(CONTROLLER.get()), Objects.requireNonNull(PORT.get()), Objects.requireNonNull(CABLE.get()), Objects.requireNonNull(COLONY_WORKBENCH.get()), Objects.requireNonNull(RESEARCH_DESK.get())).build(null));
+        return Objects.requireNonNull(BlockEntityType.Builder.of(MachineBlockEntity::new, Objects.requireNonNull(PRINTING_CORE.get()), Objects.requireNonNull(WAREHOUSE.get()), Objects.requireNonNull(CONTROLLER.get()), Objects.requireNonNull(PORT.get()), Objects.requireNonNull(CABLE.get()), Objects.requireNonNull(COLONY_WORKBENCH.get()), Objects.requireNonNull(RESEARCH_DESK.get()), Objects.requireNonNull(RESIDENCE.get()), Objects.requireNonNull(ACADEMY.get())).build(null));
     }
     @Nonnull public static final RegistryObject<MenuType<StorageMenu>> STORAGE_MENU = Objects.requireNonNull(MENUS.register("storage", () -> IForgeMenuType.create(StorageMenu::new)));
     @Nonnull public static final RegistryObject<CreativeModeTab> COLONY_TAB = Objects.requireNonNull(TABS.register("colony", () -> CreativeModeTab.builder()
@@ -49,6 +52,7 @@ public final class ColonyContent {
                 output.accept(Objects.requireNonNull(PRINTING_CORE.get())); output.accept(Objects.requireNonNull(WAREHOUSE.get())); output.accept(Objects.requireNonNull(CAPACITY_UPGRADE.get())); output.accept(Objects.requireNonNull(STACK_UPGRADE.get()));
                 output.accept(Objects.requireNonNull(CONTROLLER.get())); output.accept(Objects.requireNonNull(PORT.get())); output.accept(Objects.requireNonNull(CABLE.get()));
                 output.accept(Objects.requireNonNull(COLONY_WORKBENCH.get())); output.accept(Objects.requireNonNull(RESEARCH_DESK.get()));
+                output.accept(Objects.requireNonNull(RESIDENCE.get())); output.accept(Objects.requireNonNull(ACADEMY.get())); output.accept(Objects.requireNonNull(ACADEMY_UPGRADE.get()));
             }).build()));
     private ColonyContent() {}
     @Nonnull private static RegistryObject<Block> block(String name, Kind kind) {

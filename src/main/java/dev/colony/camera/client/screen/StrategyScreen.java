@@ -28,6 +28,7 @@ public final class StrategyScreen extends Screen {
     private final ProjectionPanel projections = new ProjectionPanel();
     private final WorkPanel work = new WorkPanel(true);
     private final SelectionLimitPanel similarLimit = new SelectionLimitPanel();
+    private final RegistryPicker volumeFilter = new RegistryPicker();
     private final BuildWindows building = new BuildWindows();
     private final PointerGesture middleGesture = new PointerGesture();
     private int dragButton = -1;
@@ -60,6 +61,7 @@ public final class StrategyScreen extends Screen {
         heightCursorX = Double.NaN;
         hud.resize(Objects.requireNonNull(font), width, height);
         similarLimit.resize(Objects.requireNonNull(font), hud.layout().similarLimitDialog());
+        volumeFilter.resize(Objects.requireNonNull(font), width, height);
         projections.resize(Objects.requireNonNull(font), width, height, hud.layout().hint().y());
         work.resize(Objects.requireNonNull(font), width, height);
         building.resize(Objects.requireNonNull(font), width, height, hud.layout().dock().y() - 4, hud.layout().placement());
@@ -81,7 +83,7 @@ public final class StrategyScreen extends Screen {
         }
         if (key == GLFW.GLFW_KEY_ESCAPE && hud.closeMenu()) { pauseCameraInput(); return true; }
         if (key == GLFW.GLFW_KEY_ESCAPE && hud.helpOpen()) { hud.closeHelp(); pauseCameraInput(); return true; }
-        if (similarLimit.keyPressed(key, scan, modifiers)) return true;
+        if (volumeFilter.keyPressed(key, scan, modifiers) || similarLimit.keyPressed(key, scan, modifiers)) return true;
         if (work.keyPressed(key, scan, modifiers)) return true;
         if (projections.keyPressed(key, scan, modifiers)) return true;
         if (building.keyPressed(key, scan, modifiers)) return true;
@@ -143,8 +145,8 @@ public final class StrategyScreen extends Screen {
 
     @Override
     public boolean charTyped(char character, int modifiers) {
-        if (similarLimit.charTyped(character, modifiers)) return true;
-        if (work.isOpen()) return true;
+        if (volumeFilter.charTyped(character, modifiers) || similarLimit.charTyped(character, modifiers)) return true;
+        if (work.isOpen()) return work.charTyped(character, modifiers);
         if (projections.modal()) return projections.charTyped(character, modifiers);
         if (building.charTyped(character, modifiers)) return true;
         return projections.charTyped(character, modifiers);
@@ -163,7 +165,7 @@ public final class StrategyScreen extends Screen {
         if (!client.isWindowActive()) {
             return true;
         }
-        if (similarLimit.click(x, y, button)) return true;
+        if (volumeFilter.click(x, y, button) || similarLimit.click(x, y, button)) return true;
         if (work.click(x, y, button)) return true;
         if (projections.click(x, y, button)) return true;
         if (hud.helpOpen()) {
@@ -321,6 +323,7 @@ public final class StrategyScreen extends Screen {
     @Override
     public void tick() {
         similarLimit.tick();
+        volumeFilter.tick();
         projections.tick();
         building.tick();
         work.tick();
@@ -334,7 +337,7 @@ public final class StrategyScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double x, double y, double delta) {
-        if (similarLimit.isOpen()) return true;
+        if (volumeFilter.scroll(delta) || similarLimit.isOpen()) return true;
         if (hud.helpOpen() || hud.menuOpen()) return true;
         if (work.scroll(x, y, delta)) return true;
         if (building.scroll(x, y, delta)) return true;
@@ -386,14 +389,14 @@ public final class StrategyScreen extends Screen {
     }
 
     public boolean blocksWorldPointer(double x, double y) {
-        return similarLimit.isOpen() || building.blocks(x, y) || work.blocks(x, y) || projections.blocks(x, y) || hud.blocksWorld(x, y, controller, building.isOpen());
+        return volumeFilter.isOpen() || similarLimit.isOpen() || building.blocks(x, y) || work.blocks(x, y) || projections.blocks(x, y) || hud.blocksWorld(x, y, controller, building.isOpen());
     }
 
     public boolean allowsCameraInput() {
-        return !similarLimit.isOpen() && !building.capturesKeyboard() && !building.dragging() && !hud.menuOpen() && !hud.helpOpen() && !projections.modal() && !work.isOpen();
+        return !volumeFilter.isOpen() && !similarLimit.isOpen() && !building.capturesKeyboard() && !building.dragging() && !hud.menuOpen() && !hud.helpOpen() && !projections.modal() && !work.isOpen();
     }
 
-    private void openWork(@Nonnull WorkPanel.Tab page) {
+    public void openWork(@Nonnull WorkPanel.Tab page) {
         clearInputState(); building.blur(); projections.close(); hud.closeHelp(); hud.closeMenu(); work.open(page);
     }
     private void openBuilding() {
@@ -402,6 +405,7 @@ public final class StrategyScreen extends Screen {
     public void openWorkStation(@Nonnull BlockPos pos, boolean research) {
         clearInputState(); building.blur(); projections.close(); hud.closeHelp(); hud.closeMenu(); work.openStation(pos, research);
     }
+    public void openResidence(@Nonnull BlockPos pos) { clearInputState(); building.blur(); projections.close(); hud.closeHelp(); hud.closeMenu(); work.openResidences(pos); }
 
     /** Selecting a tool releases only the unplaced draft, never accepted projects. */
     private void prepareSelectionTool() {
@@ -432,7 +436,12 @@ public final class StrategyScreen extends Screen {
             case TECHNOLOGY -> openWork(WorkPanel.Tab.TECHNOLOGY);
             case PROJECTS -> openWork(WorkPanel.Tab.PROJECTS);
             case MINE -> { hud.closeMenu(); ColonyWorkClient.mine(); }
-            case SWEEP -> { hud.closeMenu(); ColonyWorkClient.sweep(); }
+            case SWEEP -> { clearInputState(); building.blur(); projections.close(); hud.closeMenu(); hud.closeHelp(); work.openSweep(); }
+            case RESIDENCES -> { clearInputState(); building.blur(); projections.close(); hud.closeMenu(); hud.closeHelp(); work.openResidences(null); }
+            case VOLUME_FILTER -> {
+                clearInputState(); building.blur(); work.close(); projections.close(); hud.closeMenu(); hud.closeHelp();
+                volumeFilter.blocks(controller.selection().volumeFilter().snapshot(), chosen -> controller.selection().volumeFilter().set(Objects.requireNonNull(chosen)));
+            }
             case SIMILAR_LIMIT -> { clearInputState(); building.blur(); work.close(); projections.close(); hud.closeMenu(); hud.closeHelp(); similarLimit.open(); }
             case ANGLE_LOCK -> controller.toggleAngleLock();
             case HELP -> { pauseCameraInput(); building.blur(); hud.toggleHelp(); }
@@ -442,15 +451,16 @@ public final class StrategyScreen extends Screen {
 
     @Override
     public void render(@Nonnull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        if (!work.isOpen() && !projections.modal() && !hud.helpOpen() && !similarLimit.isOpen()) {
+        if (!work.isOpen() && !projections.modal() && !hud.helpOpen() && !similarLimit.isOpen() && !volumeFilter.isOpen()) {
             building.render(graphics, hud.menuContains(mouseX, mouseY) ? -10000 : mouseX, hud.menuContains(mouseX, mouseY) ? -10000 : mouseY, partialTick);
         }
         hud.render(graphics, Objects.requireNonNull(font), controller, mouseX, mouseY, width, height, building.isOpen());
         projections.render(graphics, mouseX, mouseY, partialTick);
         work.render(graphics, mouseX, mouseY);
-        if (!work.isOpen() && !projections.modal() && !similarLimit.isOpen())
+        if (!work.isOpen() && !projections.modal() && !similarLimit.isOpen() && !volumeFilter.isOpen())
             hud.renderOverlay(graphics, Objects.requireNonNull(font), controller, mouseX, mouseY, width, height);
         similarLimit.render(graphics, mouseX, mouseY, partialTick, width, height);
+        volumeFilter.render(graphics, mouseX, mouseY);
     }
 
     private static double normalized(double coordinate, int size) {

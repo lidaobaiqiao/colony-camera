@@ -39,6 +39,7 @@ public final class ConstructionClient {
     public static boolean recentNotice() { return noticeTime != 0 && System.nanoTime() - noticeTime < 4_000_000_000L; }
     public static int workers() { return workers; }
     public static int cores() { return cores.size(); }
+    @Nonnull public static List<BlockPos> corePositions() { return cores; }
     public static void print(@Nullable ConstructionNetwork.View project) {
         var player = Minecraft.getInstance().player;
         if (player == null) return;

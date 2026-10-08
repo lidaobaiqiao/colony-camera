@@ -133,8 +133,52 @@ SLG 保持 Minecraft 的第一人称类型，并通过镜头事件调整视角�
 
 ## 1.4.x 挖掘、清扫与殖民地生产
 
+以下固定生产目录描述 1.4.x 历史实现，1.10.0 的完整工作台配方与精确清扫契约见文末。
+
 `ColonyWorkManager` 保存附加任务并与 `ConstructionManager` 共享创建序号、工人池和 `ReservationLedger`。挖掘保存受理时的精确方块状态，`MiningService` 在服务端用真实副手工具调用生存破坏流程；`SweepService` 将有限选区内的掉落物先拾取到主手，再写入自有仓储或有效网络端口。任务暂停、取消、满仓、断连和来源变化保留实体持料或地面物品。
 
-`CraftingService` 以工作站为中心三格收集已加载、自有且站位可触及的仓储/端口，在副本库存中预演十三种原版工具/木棍配方及九种殖民地设施/升级件配方的扣料、产物和余料，完成时复查原库存与预约并原子提交。设施/升级件无需研究，避免研究台与仓储依赖自身科技；注册物品通过 Supplier 在配方使用时解析。分配和执行使用同一站位复查取用射线，避免重新计算时隔着工作台误判，同时保持墙体遮挡。`TechProgress` 按维度和玩家保存研究等级，坏或未知数据只读保留；科技等级独立于工人挖掘经验，分别控制工具解锁和开采门槛。`client.work` 负责 O 面板、工作站入口和服务端快照。
+`CraftingService` 以工作站为中心三格收集已加载、自有且站位可触及的仓储/端口，在副本库存中预演十三种原版工具/木棍配方及十二种殖民地设施/升级件配方的扣料、产物和余料，完成时复查原库存与预约并原子提交。设施/升级件无需研究，避免研究台与仓储依赖自身科技；注册物品通过 Supplier 在配方使用时解析。分配和执行使用同一站位复查取用射线，避免重新计算时隔着工作台误判，同时保持墙体遮挡。`TechProgress` 按维度和玩家保存研究等级，坏或未知数据只读保留；科技等级独立于工人挖掘属性，分别控制工具解锁和开采门槛。`client.work` 负责 O 面板、工作站入口和服务端快照。
 
 挖掘、清扫、合成和研究沿用建造的优先度 9 到 1、同级序号 FIFO 和实际执行前复查。自动生产前置链及工程优先度继承尚未实现。详细取舍见 [决策 0012](decisions/0012-colony-work-and-technology.md)。
+
+## 1.8.0 挖掘调度
+
+挖掘算法的性质与目标以 [0021](decisions/0021-mining-algorithm-baseline.md) 为准。`MiningFrontier` 维护目标周围真实世界的开放面和局部空间查询；区域外的实体墙仍是遮挡，空气只影响暴露面，不成为待挖目标。`MiningPartition` 按剩余工作量和工人速度生成空间分工偏好，工人可以接手其他区域，不构成硬边界。
+
+`MiningPlan` 保存会话内的站位、分工偏好和受阻记录；`MiningScheduler` 在统一优先度调度内认领目标，先保持已有工作，再覆盖当前站位的多个合法目标，最后才选择下一站。规划使用独立导航器；同一路线的执行仍通过 `GroundResources.follow` 续行。真实工具领取、权限、视线、工人脚下支撑和生存破坏流程保留在 `MiningService`，几何规划本身不赋予破坏权限。
+
+`MiningProgress` 按工程目标积累破坏进度，每个服务端 tick 至多推进一次；成功破坏或目标变化后清除。`WorkTask` 只承载瞬态分配，换位、换工人或优先任务抢占不会清零已做的工作。附加任务 SavedData 使用 schema 3 的稀疏进度条目；旧 1/2 保留原契约及完成位图并从零部分进度迁移，损坏数据原样只读保留。格式与可替换的实现选择见 [0023](decisions/0023-mining-work-and-progress.md)。
+
+## 工人状态与生活（1.9.0）
+
+`worker.WorkerState` / `WorkerProfile` / `WorkerAttribute` 是纯 Java 输入模型，定义十八属性与六层十六职业；BigInteger 保留无上限点数及有效工作积累，七个游戏日为基础斜率。`WorkerEffects` 分别映射物理效果，`WorkerConfig` 独立定义各属性、职业即时加成/成长及特殊指令的温和占位值。能力路由独立于效率数值，现有生产/研究/教学模块消费相应能力，其余具体职业行为留给独立模块，快照明确区分。MiningSkill 已删除，旧阈值仅留在迁移函数中。
+
+`WorkerLiving` 在真实实体 tick 处理代谢、食物取用、住所休息与学堂学习；工人不可调度时独占其导航，调度器不能停止生活路线或改动持料。`Residences` 根据玩家建造的房间识别独立床位，设施保存认领 UUID，卸载不释放；死亡、销毁或跨维度迁移释放原房间。`WorkerOrders` 验证玩家专属特殊指令，实际伤害、视线与同殖民地沟通影响可见压力来源。`WorkerSnapshots` 只发布受限的真实状态，`client.work.WorkerPanel` 显示并提交意图。
+
+`LoadedGroundNavigation` 允许规划木门路线，`WorkerDoorGoal` 负责原版开关动作。每次动作都检查已加载位置、殖民地归属、世界权限和 Forge 右键方块事件；权限拒绝保留门状态和住所认领，不改变实体碰撞或瞬移。
+
+工作持料的额外数量由实体整数保存，原版主手只显示一个原生堆叠，所有提取、建造消耗、清扫入库和死亡掉落仍操作同一份真实库存。施工在实际身体离开待建方块碰撞区域后才推进，低优先工程不能改签高优先持料。合成/研究累计有效工作记在 ColonyJob 中，预约仍是临时意图，最终库存事务继续复核。
+
+保存和迁移、房间识别边界、学习内容和数值配置见 [0026](decisions/0026-worker-state-first-implementation.md)。
+
+1.10.1 按用户纠正使打印与住房数量独立。`ConstructionManager.printWorker` 只按核心、权限、冷却、人口性能上限、出生配置及安全站位受理，住房是可选自动分配；无房工人可参与普通工作。`Residences` 的一人一间约束仍用于居住和学习，不再充当出生门槛。
+
+1.10.2 的 `SweepService` 复查并保留有效拾取来源、已选仓库和取用站位；`WorkPaths.beside` 提供旧站位优先的可达/视线核验，不改动规划以外的导航。没有临时目的地时，`StorageResources.colonyStores` 查询导航范围内的已加载自有仓储/端口以恢复明确交付意图，其他扫描继续按搜索属性。入仓按实际距离和视线成立后停下导航并存放，减少格子中心争抢；详见 [0028](decisions/0028-sweep-delivery-continuity.md)。
+
+## 配方书、任务标记与顶面清扫（1.10.0）
+
+`CraftingService` 从真实服务器注册表解析普通有序/无序工作台配方，产物不限于方块；真实输入匹配、NBT、余料、空间与既有预约共用生产事务。固定工具条目只提供按产物判断的科技要求，不再限制目录。建造前置仍筛选方块产物。`previewPage` 用库存副本预演所选批次，前一轮的产物/余料进入下一轮；不创建预约或影响执行导航。
+
+`client.work.CraftingPanel` 接管合成页，使用原版已同步的工作台配方注册表及原生图标/输入组件；搜索、分类、材料替代和数量预览均在客户端。可见页向服务器请求状态，工作网络协议 3 增加独立 `CraftView`，常规任务快照不再广播整个配方目录。`CraftingPanelLayout` 是纯 Java 几何，发布与架构检查均涵盖它。特殊动态配方显示但不能自动生产，机台配方及递归生产链另行实现。
+
+`ColonyJob.surfaceSweep` 区分新精确顶面列表与旧范围端点，SavedData schema 5 迁移旧 1–4 而不改变已有清扫含义。`SweepService` 的包围盒仅作粗查，成员与拾取前复查仍使用精确集合、脚下碰撞部件高度和垂直遮挡；不选缝隙或其他层。拾取站位须物理可站、可见且可达，实际作业继续依赖原版导航及真实仓储。
+
+`WorkTargetMarks` 从本玩家未完成/未取消任务生成有限页面，暂停任务仍保留；黄色挖掘、蓝色清扫与旧范围分别同步。`WorkTargetRenderer` 在客户端收到同请求完整页面后更新，退出世界/换维度清空，SLG 中只读取已加载方块的形状绘制。任务标记生命周期与本地鼠标选择独立，清空选区不取消工作。实现选择和兼容见 [0027](decisions/0027-recipe-book-and-surface-sweep.md)。
+
+## 1.11.0 类型与个体配置
+
+`TypeSelection` 是纯模型，`BlockSelectionController` 在立体扫描确认时捕获快照并在完成时复核；`RegistryPicker` 提供共用的原生搜索、多选和真实物品栏单选弹窗。`SweepPanel` / `ResidencePanel` 嵌入 `WorkPanel`，所有键鼠先到模态子页，第一人称与 SLG 共用服务端入口。菜单保持双端底栏，不增加常驻按钮。
+
+`ItemSweepService` 处理有限 UUID 批次的分步物理可达检查，`SweepService` 继续执行真实拾取/入仓。`ColonyJob.itemTypes/sweepDrops` 与顶面/旧范围分开，任务 SavedData schema 6 从 1–5 迁移，类型任务不画成旧区域任务标记。`WorkerPreferences` 通过建造、MiningScheduler 和附加任务调度限制个人资格，原任务持料可交付；`WorkerEquipment` 原子交换玩家实际库存与工人原生护甲/副手槽，保护运输主手。
+
+`Residences.details` 给出真实房间检查，`ResidenceOrders` 验证归属/距离/权限并处理命名、入住与自动分配；Living schema 2 与独立 ColonyPreferences schema 1 保持严格迁移及坏数据保留。工作协议 4 要求双方同版；性质及可替换选择见 [0029](decisions/0029-selection-item-sweep-worker-and-home-settings.md)。

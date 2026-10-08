@@ -25,12 +25,17 @@ import java.util.UUID;
 @ParametersAreNonnullByDefault
 public final class WorkPanel {
     public enum Tab { TASKS, CRAFT, TECHNOLOGY, PEOPLE, PROJECTS }
-    private enum Action { CLOSE, TASKS, CRAFT, TECHNOLOGY, PEOPLE, PROJECTS, TECH_TREE, PRINT, MINE, SWEEP, PRIORITY_DOWN, PRIORITY_UP,
+    private enum Action { CLOSE, TASKS, CRAFT, TECHNOLOGY, PEOPLE, PROJECTS, TECH_TREE, PERSON, RESIDENCES, PRINT, MINE, SWEEP, PRIORITY_DOWN, PRIORITY_UP,
         PAUSE, CANCEL, REFRESH, STATION, COUNT_DOWN, COUNT_UP, QUEUE_CRAFT, QUEUE_RESEARCH }
     private record Control(@Nonnull Action action, @Nonnull StrategyHudLayout.Rect bounds, @Nonnull Component label, boolean enabled) {}
     private static final int TEXT = 0xE8F1F5, MUTED = 0x90A8B8, ACCENT = 0x67DEC2, GOLD = 0xFFD379;
     private final boolean selectionAvailable;
     private final TechnologyPanel technology = new TechnologyPanel();
+    private final WorkerPanel person = new WorkerPanel();
+    private final CraftingPanel crafting = new CraftingPanel();
+    private final ResidencePanel residences = new ResidencePanel();
+    private final SweepPanel sweeping = new SweepPanel();
+    private boolean standalone;
     @Nullable private UUID selectedPerson, selectedProject;
     @Nonnull private final List<Control> controls = new ArrayList<>();
     @Nonnull private WorkPanelLayout layout = new WorkPanelLayout(1, 1);
@@ -49,24 +54,37 @@ public final class WorkPanel {
     public WorkPanel(boolean selectionAvailable) { this.selectionAvailable = selectionAvailable; }
     public boolean isOpen() { return open; }
     public void resize(Font newFont, int w, int h) {
-        font = newFont; width = w; height = h; layout = new WorkPanelLayout(w, h); technology.resize(newFont, w, h); rebuild();
+        font = newFont; width = w; height = h; layout = new WorkPanelLayout(w, h); technology.resize(newFont, w, h); person.resize(newFont, w, h); crafting.resize(newFont, w, h); rebuild();
+        residences.resize(newFont, w, h); sweeping.resize(newFont, w, h);
     }
     public void open() { open(tab); }
     public void open(Tab page) {
-        tab = page; selected = scroll = 0; open = true; technology.close(); ColonyWorkClient.refresh(); ConstructionClient.refresh(); rebuild();
+        tab = page; selected = scroll = 0; open = true; standalone = false; technology.close(); person.close(); residences.close(); sweeping.close();
+        if (page == Tab.CRAFT) crafting.open(craftStation); else crafting.close();
+        ColonyWorkClient.refresh(); ConstructionClient.refresh(); rebuild();
     }
     public void openStation(BlockPos pos, boolean research) {
         if (research) researchStation = pos; else craftStation = pos;
         tab = research ? Tab.TECHNOLOGY : Tab.CRAFT; selected = scroll = 0; open();
     }
-    public void close() { open = false; technology.close(); controls.clear(); }
+    public void openSweep() { open(Tab.TASKS); standalone = true; sweeping.open(); }
+    public void openResidences(@Nullable BlockPos marker) { open(Tab.PEOPLE); standalone = true; residences.open(marker); }
+    public void close() { open = false; technology.close(); person.close(); crafting.close(); residences.close(); sweeping.close(); controls.clear(); }
     public void tick() {
         if (!open) return;
+        if (standalone && !residences.isOpen() && !sweeping.isOpen()) { close(); return; }
+        if (residences.isOpen()) { residences.tick(); return; }
+        if (sweeping.isOpen()) { sweeping.tick(); return; }
+        person.tick();
+        if (crafting.isOpen()) { crafting.tick(); if (!crafting.isOpen()) close(); return; }
         rebuild();
     }
     public boolean blocks(double x, double y) { return open; }
     public boolean keyPressed(int key, int scan, int modifiers) {
         if (!open) return false;
+        if (crafting.isOpen()) { crafting.keyPressed(key, scan, modifiers); if (!crafting.isOpen()) close(); return true; }
+        if (residences.keyPressed(key, scan, modifiers) || sweeping.keyPressed(key, scan, modifiers)) return true;
+        if (person.keyPressed(key, scan, modifiers)) return true;
         if (technology.keyPressed(key, scan, modifiers)) return true;
         if (key == GLFW.GLFW_KEY_ESCAPE) { close(); return true; }
         if (layout.usable() && (key == GLFW.GLFW_KEY_DOWN || key == GLFW.GLFW_KEY_UP) && tab != Tab.TECHNOLOGY) {
@@ -77,6 +95,9 @@ public final class WorkPanel {
     }
     public boolean click(double x, double y, int button) {
         if (!open) return false;
+        if (residences.click(x, y, button) || sweeping.click(x, y, button)) return true;
+        if (crafting.isOpen()) { crafting.click(x, y, button); if (!crafting.isOpen()) close(); return true; }
+        if (person.click(x, y, button)) return true;
         if (technology.click(x, y, button)) return true;
         if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) return true;
         rebuild();
@@ -91,6 +112,9 @@ public final class WorkPanel {
     }
     public boolean scroll(double x, double y, double delta) {
         if (!open) return false;
+        if (residences.scroll(delta) || sweeping.scroll(delta)) return true;
+        if (crafting.isOpen()) return crafting.scroll(delta);
+        if (person.scroll(delta)) return true;
         if (technology.scroll(x, y, delta)) return true;
         if (Double.isFinite(delta) && layout.list().contains(x, y) && tab != Tab.TECHNOLOGY) {
             scroll = Math.max(0, Math.min(Math.max(0, count() - layout.rows()), scroll - (int) Math.signum(delta)));
@@ -101,6 +125,10 @@ public final class WorkPanel {
     public void render(GuiGraphics graphics, int mouseX, int mouseY) {
         Font currentFont = font;
         if (!open || currentFont == null) return;
+        if (residences.isOpen()) { residences.render(graphics, mouseX, mouseY); return; }
+        if (sweeping.isOpen()) { sweeping.render(graphics, mouseX, mouseY); return; }
+        if (crafting.isOpen()) { crafting.render(graphics, mouseX, mouseY); return; }
+        if (person.isOpen()) { person.render(graphics, mouseX, mouseY); return; }
         if (technology.isOpen()) { technology.render(graphics, mouseX, mouseY); return; }
         rebuild();
         graphics.fill(0, 0, width, height, 0x60071019);
@@ -135,6 +163,10 @@ public final class WorkPanel {
             for (Component line : tooltip) wrapped.addAll(currentFont.split(Objects.requireNonNull(line), wrap));
             graphics.renderTooltip(currentFont, wrapped, mouseX, mouseY);
         }
+    }
+    public boolean charTyped(char character, int modifiers) {
+        if (residences.charTyped(character, modifiers) || sweeping.charTyped(character, modifiers) || person.charTyped(character, modifiers)) return true;
+        if (crafting.isOpen()) return crafting.charTyped(character, modifiers); return open;
     }
 
     private void renderTasks(GuiGraphics graphics, Font currentFont) {
@@ -222,7 +254,7 @@ public final class WorkPanel {
             var selection = StrategyCameraController.instance().selection();
             boolean selectedCells = selectionAvailable && selection.selectionCount() > 0 && !selection.working() && !selection.selectingHeight();
             add(Action.MINE, layout.creation(0), text("mine_selection"), selectedCells);
-            add(Action.SWEEP, layout.creation(1), text("sweep_selection"), selectedCells);
+            add(Action.SWEEP, layout.creation(1), text("sweep_selection"), true);
             add(Action.PRIORITY_DOWN, layout.action(0, 5), text("priority_down"), running && job != null && job.priority() > 1);
             add(Action.PRIORITY_UP, layout.action(1, 5), text("priority_up"), running && job != null && job.priority() < 9);
             add(Action.PAUSE, layout.action(2, 5), text(job != null && job.paused() ? "resume" : "pause"), running);
@@ -256,8 +288,9 @@ public final class WorkPanel {
             }
             clamp();
             if (tab == Tab.PEOPLE) {
-                add(Action.PRINT, layout.action(0, 2), text("print_worker"), ConstructionClient.cores() > 0);
-                add(Action.REFRESH, layout.action(1, 2), text("refresh"), true);
+                add(Action.PRINT, layout.action(0, 3), text("print_worker"), ConstructionClient.cores() > 0);
+                add(Action.PERSON, layout.action(1, 3), text("person_details"), count() > 0);
+                add(Action.RESIDENCES, layout.action(2, 3), text("residences"), true);
             } else {
                 var project = chosenProject(); boolean running = project != null && !project.cancelled() && project.completed() < project.total();
                 add(Action.PRINT, layout.creation(0), text("print_worker"), ConstructionClient.cores() > 0);
@@ -275,7 +308,8 @@ public final class WorkPanel {
             case CLOSE -> close();
             case TASKS, CRAFT, TECHNOLOGY, PEOPLE, PROJECTS -> { var page = Objects.requireNonNull(Tab.valueOf(Objects.requireNonNull(action.name()))); if (tab != page) open(page); }
             case MINE -> ColonyWorkClient.mine();
-            case SWEEP -> ColonyWorkClient.sweep();
+            case SWEEP -> sweeping.open();
+            case RESIDENCES -> residences.open(null);
             case PRIORITY_DOWN, PRIORITY_UP, PAUSE, CANCEL -> {
                 var project = chosenProject();
                 if (project != null) {
@@ -287,7 +321,8 @@ public final class WorkPanel {
                 }
             }
             case REFRESH -> { ColonyWorkClient.refresh(); ConstructionClient.refresh(); }
-            case PRINT -> ConstructionClient.print(chosenProject());
+            case PRINT -> person.print();
+            case PERSON -> { if (selectedPerson != null) person.open(selectedPerson); }
             case TECH_TREE -> { technology.station(chosenStation(true)); technology.open(); }
             case STATION -> cycleStation(tab == Tab.TECHNOLOGY);
             case COUNT_DOWN -> amount = Math.max(1, amount - 1);
@@ -352,7 +387,7 @@ public final class WorkPanel {
         for (var control : controls) if (control.bounds().contains(x, y)) {
             String suffix = switch (control.action()) {
                 case MINE -> selectionAvailable ? "mine_tip" : "selection_from_strategy";
-                case SWEEP -> selectionAvailable ? "sweep_tip" : "selection_from_strategy";
+                case SWEEP -> "sweep_tip";
                 case STATION -> "station_tip";
                 case QUEUE_CRAFT -> "craft_tip";
                 case QUEUE_RESEARCH -> "research_tip";
@@ -406,7 +441,7 @@ public final class WorkPanel {
             var person = people.get(row + scroll); var r = layout.row(row);
             if (row + scroll == selected) g.fill(r.x(), r.y(), r.right(), r.bottom(), 0xFF234B4B);
             fitted(g, current, text("person_id", person.id().toString().substring(0, 8)), r.x() + 4, r.y() + 2, r.width() - 8, TEXT);
-            fitted(g, current, text("person_level", person.miningLevel(), person.xp()), r.x() + 4, r.y() + 13, r.width() - 8, MUTED);
+            fitted(g, current, text("person_points", person.miningLevel(), person.mined()), r.x() + 4, r.y() + 13, r.width() - 8, MUTED);
         }
         if (count() > 0) drawDetails(g, current, personDetails(Objects.requireNonNull(people.get(selected))));
     }
@@ -426,7 +461,7 @@ public final class WorkPanel {
     @Nonnull private static List<Component> personDetails(ColonyWorkClient.Worker person) {
         List<Component> lines = new ArrayList<>();
         lines.add(Objects.requireNonNull(Component.literal(Objects.requireNonNull(person.id().toString()))));
-        lines.add(text("person_level", person.miningLevel(), person.xp())); lines.add(text("person_tool", itemName(person.tool())));
+        lines.add(text("person_points", person.miningLevel(), person.mined())); lines.add(text("person_tool", itemName(person.tool())));
         var job = ColonyWorkClient.jobs().stream().filter(value -> value.id().equals(person.job())).findFirst().orElse(null);
         var project = ConstructionClient.projects().stream().filter(value -> value.id().equals(person.project())).findFirst().orElse(null);
         lines.add(job != null ? text("person_job", jobTitle(job)) : project != null ? text("person_job", ColonyWorkClient.text(project.name())) : text("person_idle"));

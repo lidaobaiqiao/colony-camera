@@ -24,7 +24,8 @@ public final class WorkStations {
     private static final Map<ServerLevel, Set<BlockPos>> LOADED = new WeakHashMap<>();
     private WorkStations() {}
     public static void add(ServerLevel level, BlockPos pos) {
-        if (level.getBlockEntity(pos) instanceof MachineBlockEntity machine && (machine.kind() == ColonyContent.Kind.COLONY_WORKBENCH || machine.kind() == ColonyContent.Kind.RESEARCH_DESK))
+        if (level.getBlockEntity(pos) instanceof MachineBlockEntity machine && (machine.kind() == ColonyContent.Kind.COLONY_WORKBENCH || machine.kind() == ColonyContent.Kind.RESEARCH_DESK
+                || machine.kind() == ColonyContent.Kind.RESIDENCE || machine.kind() == ColonyContent.Kind.ACADEMY))
             LOADED.computeIfAbsent(level, ignored -> new HashSet<>()).add(pos.immutable());
     }
     public static void remove(ServerLevel level, BlockPos pos) { var entries = LOADED.get(level); if (entries != null) entries.remove(pos); }

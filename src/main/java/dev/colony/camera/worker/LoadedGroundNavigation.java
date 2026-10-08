@@ -22,6 +22,7 @@ public final class LoadedGroundNavigation extends GroundPathNavigation {
         WorkerWalkNodeEvaluator evaluator = new WorkerWalkNodeEvaluator();
         nodeEvaluator = evaluator;
         evaluator.setCanPassDoors(true);
+        evaluator.setCanOpenDoors(true);
         return new PathFinder(evaluator, maxVisitedNodes);
     }
     @Override @Nonnull protected Vec3 getTempMobPos() {
@@ -46,7 +47,8 @@ public final class LoadedGroundNavigation extends GroundPathNavigation {
     @Override @Nullable protected Path createPath(Set<BlockPos> targets, int regionExtra, boolean above, int reach, float distance) {
         if (!(level instanceof ServerLevel server)) return null;
         BlockPos origin = Objects.requireNonNull(mob.blockPosition());
-        for (int range = Math.min(WorkerEntity.NAVIGATION_RANGE, (int) distance); range >= 8; range -= 8) {
+        int maximum = mob instanceof WorkerEntity worker ? worker.navigationRange() : WorkerEntity.NAVIGATION_RANGE;
+        for (int range = Math.min(maximum, (int) distance); range >= 8; range -= 8) {
             if (loaded(server, origin, range + regionExtra)) return super.createPath(targets, regionExtra, above, reach, range);
         }
         return null;

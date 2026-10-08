@@ -145,7 +145,7 @@ tasks.register('verifyArchitecture') {
         if (cameraState =~ /(?m)^import\s+(net\.|org\.lwjgl\.|com\.mojang\.|dev\.colony\.)/) {
             throw new GradleException('CameraState must remain independent of game APIs')
         }
-        ['SelectionState', 'SelectionBoxes', 'FaceSelection', 'SimilarSelectionJob', 'HeightSelection'].each { model ->
+        ['SelectionState', 'SelectionBoxes', 'FaceSelection', 'SimilarSelectionJob', 'HeightSelection', 'TypeSelection'].each { model ->
             def text = file("src/main/java/dev/colony/camera/client/selection/${model}.java").getText('UTF-8')
             if (text =~ /(?m)^import\s+(net\.|org\.|com\.)/) {
                 throw new GradleException("${model} must remain independent of game APIs")
@@ -155,7 +155,7 @@ tasks.register('verifyArchitecture') {
         if (hudLayout =~ /(?m)^import\s+(net\.|org\.|com\.)/) {
             throw new GradleException('StrategyHudLayout must remain independent of game APIs')
         }
-        ['preset/BlockPreset', 'planning/ProjectionPlacement', 'client/screen/ProjectionPanelLayout', 'client/screen/BuildPanelLayout', 'client/screen/BuildCatalogFilter', 'client/input/PointerGesture', 'client/screen/WindowGeometry', 'client/planning/BlockDraftState', 'client/work/TechnologyPanelLayout', 'client/work/WorkPanelLayout', 'worker/MiningSkill', 'resources/ReservationLedger', 'construction/ProjectOrder', 'network/ConstructionPayload'].each { model ->
+        ['preset/BlockPreset', 'planning/ProjectionPlacement', 'client/screen/ProjectionPanelLayout', 'client/screen/BuildPanelLayout', 'client/screen/BuildCatalogFilter', 'client/input/PointerGesture', 'client/screen/WindowGeometry', 'client/planning/BlockDraftState', 'client/work/TechnologyPanelLayout', 'client/work/WorkPanelLayout', 'client/work/CraftingPanelLayout', 'worker/WorkerAttribute', 'worker/WorkerProfile', 'worker/WorkerState', 'worker/WorkerPreferences', 'work/MiningFrontier', 'work/MiningPartition', 'work/MiningProgress', 'resources/ReservationLedger', 'construction/ProjectOrder', 'network/ConstructionPayload'].each { model ->
             def text = file("src/main/java/dev/colony/camera/${model}.java").getText('UTF-8')
             if (text =~ /(?m)^import\s+(net\.|org\.|com\.)/) {
                 throw new GradleException("${model} must remain independent of game APIs")
@@ -195,6 +195,10 @@ tasks.register('verifyModJar') {
                     'dev/colony/camera/client/screen/WindowGeometry.class',
                     'dev/colony/camera/client/work/TechnologyPanel.class',
                     'dev/colony/camera/client/work/TechnologyPanelLayout.class',
+                    'dev/colony/camera/client/work/CraftingPanel.class',
+                    'dev/colony/camera/client/work/CraftingPanelLayout.class',
+                    'dev/colony/camera/client/work/WorkTargetRenderer.class',
+                    'dev/colony/camera/work/WorkTargetMarks.class',
                     'dev/colony/camera/client/screen/ProjectionPanel.class',
                     'dev/colony/camera/client/screen/ProjectionPanelLayout.class',
                     'dev/colony/camera/client/preset/MinecraftPresetAdapter.class',
@@ -242,20 +246,27 @@ tasks.register('verifyModJar') {
              'storage/StorageMenu', 'storage/StorageAccess', 'storage/StorageNetwork', 'storage/NetworkItemHandler',
              'resources/StorageResources', 'client/storage/StorageScreen', 'work/ColonyJob', 'work/WorkTask', 'work/WorkPaths',
              'work/ColonyWorkManager', 'work/WorkNetwork', 'work/WorkStations', 'work/MiningService', 'work/SweepService',
-             'worker/MiningSkill', 'crafting/CraftingService', 'tech/TechProgress', 'client/work/ColonyWorkClient',
+             'work/MiningFrontier', 'work/MiningPartition', 'work/MiningProgress', 'work/MiningPlan', 'work/MiningScheduler',
+             'worker/WorkerAttribute', 'worker/WorkerProfile', 'worker/WorkerState', 'worker/WorkerStateStorage', 'worker/WorkerEffects', 'worker/WorkerLiving', 'worker/WorkerOrders',
+             'worker/WorkerDirective', 'worker/WorkerSnapshots', 'worker/Residences', 'worker/WorkerDoorGoal', 'worker/WorkerProfile$Interest', 'worker/WorkerProfile$Temperament',
+             'worker/WorkerProfile$Profession', 'worker/WorkerProfile$ProfessionLayer', 'worker/WorkerProfile$Ability',
+             'config/WorkerConfig', 'content/AcademyUpgradeItem', 'client/work/WorkerPanel',
+             'worker/WorkerPreferences', 'worker/WorkerPreferenceStorage', 'worker/WorkerEquipment', 'worker/ResidenceOrders',
+             'work/ItemSweepService', 'client/selection/TypeSelection', 'client/screen/RegistryPicker', 'client/work/SweepPanel', 'client/work/ResidencePanel',
+             'crafting/CraftingService', 'tech/TechProgress', 'client/work/ColonyWorkClient',
              'client/work/ColonyWorkScreen', 'client/work/WorkPanel', 'client/work/WorkPanelLayout'].each { type ->
                 required.add("dev/colony/camera/${type}.class")
             }
-            ['printing_core', 'warehouse', 'network_controller', 'network_port', 'network_cable', 'colony_workbench', 'research_desk'].each { block ->
+            ['printing_core', 'warehouse', 'network_controller', 'network_port', 'network_cable', 'colony_workbench', 'research_desk', 'residence', 'academy'].each { block ->
                 required.addAll(["assets/${mod_id}/blockstates/${block}.json", "assets/${mod_id}/models/block/${block}.json",
                                  "assets/${mod_id}/models/item/${block}.json", "data/${mod_id}/loot_tables/blocks/${block}.json",
                                  "data/${mod_id}/recipes/${block}.json"])
             }
-            ['capacity_upgrade', 'stack_upgrade'].each { item ->
+            ['capacity_upgrade', 'stack_upgrade', 'academy_upgrade'].each { item ->
                 required.addAll(["assets/${mod_id}/models/item/${item}.json", "data/${mod_id}/recipes/${item}.json"])
             }
             ['printing_core', 'warehouse', 'network_controller', 'network_port', 'network_cable',
-             'colony_workbench', 'research_desk', 'capacity_upgrade', 'stack_upgrade'].each { item ->
+             'colony_workbench', 'research_desk', 'capacity_upgrade', 'stack_upgrade', 'residence', 'academy', 'academy_upgrade'].each { item ->
                 required.add("data/${mod_id}/advancements/recipes/misc/${item}.json")
             }
             required.each { path ->
@@ -279,6 +290,9 @@ tasks.register('verifyModJar') {
             }
             if (zip.getEntry('dev/colony/camera/StrategyCamera.class') != null) {
                 throw new GradleException('Obsolete prototype class remains in the release JAR')
+            }
+            if (zip.getEntry('dev/colony/camera/worker/MiningSkill.class') != null) {
+                throw new GradleException('Obsolete independent mining growth remains in the release JAR')
             }
             if (zip.getEntry('dev/colony/camera/client/selection/MarqueeSelectionJob.class') != null) {
                 throw new GradleException('Obsolete screen sampling remains in the release JAR')

@@ -76,10 +76,10 @@ public final class ConstructionGameTests {
     public static void creativeTabPublishesAllFacilitiesAndUpgrades(GameTestHelper helper) {
         var tab = ColonyContent.COLONY_TAB.get();
         tab.buildContents(new net.minecraft.world.item.CreativeModeTab.ItemDisplayParameters(Objects.requireNonNull(helper.getLevel().enabledFeatures()), true, Objects.requireNonNull(helper.getLevel().registryAccess())));
-        helper.assertTrue(tab.getDisplayItems().size() == 9, "Creative colony tab is incomplete");
+        helper.assertTrue(tab.getDisplayItems().size() == 12, "Creative colony tab is incomplete");
         for (var item : List.of(ColonyContent.PRINTING_CORE.get().asItem(), ColonyContent.WAREHOUSE.get().asItem(), ColonyContent.CONTROLLER.get().asItem(),
                 ColonyContent.PORT.get().asItem(), ColonyContent.CABLE.get().asItem(), ColonyContent.CAPACITY_UPGRADE.get(), ColonyContent.STACK_UPGRADE.get(),
-                ColonyContent.COLONY_WORKBENCH.get().asItem(), ColonyContent.RESEARCH_DESK.get().asItem())) {
+                ColonyContent.COLONY_WORKBENCH.get().asItem(), ColonyContent.RESEARCH_DESK.get().asItem(), ColonyContent.RESIDENCE.get().asItem(), ColonyContent.ACADEMY.get().asItem(), ColonyContent.ACADEMY_UPGRADE.get())) {
             helper.assertTrue(tab.contains(new ItemStack(Objects.requireNonNull(item))), "Missing creative/search entry: " + item);
         }
         helper.succeed();
@@ -119,7 +119,8 @@ public final class ConstructionGameTests {
         ConstructionProject second = project(helper, scene, 5, 6, 5);
         material(helper, scene, 3, 3, 1);
         helper.runAtTickTime(180, () -> {
-            helper.assertTrue(first.finished() && !second.finished(), "Same-priority FIFO violated"); helper.succeed();
+            helper.assertTrue(first.finished() && !second.finished(), "Same-priority FIFO violated: first=" + first.reason + "/" + first.completed.cardinality()
+                    + " second=" + second.reason + "/" + second.completed.cardinality()); helper.succeed();
         });
     }
 
@@ -255,7 +256,7 @@ public final class ConstructionGameTests {
         scene.player.setPos(scene.player.getX(), scene.player.getY() + 8, scene.player.getZ());
         helper.assertTrue(scene.manager.printWorker(Objects.requireNonNull(scene.player), Objects.requireNonNull(core.getBlockPos())).equals("success"), "Flying player prevented core print");
         helper.assertTrue(scene.manager.printWorker(Objects.requireNonNull(scene.player), Objects.requireNonNull(core.getBlockPos())).equals("cooldown"), "Core allowed duplicate print before ready");
-        ConstructionProject project = project(helper, scene, 7, 7, 5); material(helper, scene, 3, 3, 1);
+        ConstructionProject project = project(helper, scene, 7, 7, 5); material(helper, scene, 3, 6, 1);
         helper.succeedWhen(() -> helper.assertTrue(project.finished(), "Printed worker did not pick up and build"));
     }
 

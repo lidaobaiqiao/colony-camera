@@ -54,7 +54,6 @@ import java.util.UUID;
 public final class ConstructionManager extends SavedData {
     public static final int MAX_PROJECTS = 32;
     public static final int MAX_BLOCKS = 32768;
-    public static final int MAX_WORKERS = 8;
     private static final Logger LOGGER = LogUtils.getLogger();
     private final Map<UUID, ConstructionProject> projects = new LinkedHashMap<>();
     @Nonnull private final ReservationLedger ledger = new ReservationLedger();
@@ -67,6 +66,7 @@ public final class ConstructionManager extends SavedData {
     @Nullable private CompoundTag rejectedData;
     private int pathBudget;
     @Nonnull private List<WorkerEntity> lastWorkers = Objects.requireNonNull(List.of());
+    @Nonnull public ReservationLedger ledger() { return ledger; }
     private record DispatchEntry(ProjectOrder order, @Nullable ConstructionProject construction, @Nullable ColonyJob work) {}
     public long allocateSequence() { long value = nextSequence; nextSequence = Math.addExact(nextSequence, 1); setDirty(); return value; }
     public void sequenceFloor(long floor) { if (floor > nextSequence) { nextSequence = floor; setDirty(); } }
@@ -77,6 +77,7 @@ public final class ConstructionManager extends SavedData {
         @Nullable public UUID source;
         @Nullable public StorageResources.Claim storage;
         public long deadline;
+        public int actionProgress;
         public Assignment(UUID project, int unit, BlockPos stand, @Nullable UUID source, long deadline) {
             this.project = project; this.unit = unit; this.stand = stand; this.source = source; this.deadline = deadline;
         }
@@ -142,13 +143,19 @@ public final class ConstructionManager extends SavedData {
         reallocate = true; setDirty();
     }
     @Nonnull public String printWorker(ServerPlayer player, BlockPos core) {
+        return printWorker(player, core, dev.colony.camera.worker.WorkerProfile.Interest.NONE, dev.colony.camera.worker.WorkerProfile.Temperament.NONE);
+    }
+    @Nonnull public String printWorker(ServerPlayer player, BlockPos core, dev.colony.camera.worker.WorkerProfile.Interest interest,
+            dev.colony.camera.worker.WorkerProfile.Temperament temperament) {
         if (rejectedData != null) return "data";
         if (player.isSpectator() || !player.getAbilities().mayBuild) return "denied";
         ServerLevel level = Objects.requireNonNull(player.serverLevel());
         if (!GroundResources.loaded(level, core) || !(level.getBlockEntity(core) instanceof MachineBlockEntity machine)
                 || machine.kind() != ColonyContent.Kind.PRINTING_CORE || !machine.permits(Objects.requireNonNull(player.getUUID())) || !level.mayInteract(player, core)) return "no_core";
         if (level.getGameTime() < machine.nextPrint) return "cooldown";
-        if (workers(level).stream().filter(w -> player.getUUID().equals(w.owner())).count() >= MAX_WORKERS) return "limit";
+        if (workers(level).stream().filter(w -> player.getUUID().equals(w.owner())).count() >= dev.colony.camera.config.WorkerConfig.POPULATION_LIMIT.get()) return "limit";
+        if (!dev.colony.camera.worker.WorkerProfile.compatible(interest, temperament)) return "profile";
+        for (WorkerEntity existing : workers(level)) if (player.getUUID().equals(existing.owner())) dev.colony.camera.worker.Residences.assign(level, Objects.requireNonNull(existing));
         WorkerEntity worker = ColonyEntities.WORKER.get().create(level);
         if (worker == null) return "failed";
         for (int dy : new int[]{0, 1, -1, 2, -2}) for (int ring = 1; ring <= 3; ring++) for (int dx = -ring; dx <= ring; dx++) for (int dz = -ring; dz <= ring; dz++) {
@@ -157,7 +164,10 @@ public final class ConstructionManager extends SavedData {
             if (!standable(level, pos) || !level.mayInteract(player, pos) || !level.getEntitiesOfClass(LivingEntity.class, GroundResources.body(pos)).isEmpty()) continue;
             worker.moveTo(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, player.getYRot(), 0);
             worker.owner(Objects.requireNonNull(player.getUUID()));
+            worker.state().birth(interest, temperament); worker.applyStateEffects();
             if (level.addFreshEntity(worker)) {
+                // Assign housing when available; a vacant room is never a printing prerequisite.
+                dev.colony.camera.worker.Residences.assign(level, worker);
                 machine.nextPrint = level.getGameTime() + 20; machine.setChanged();
                 level.setBlock(core, Objects.requireNonNull(machine.getBlockState().setValue(Objects.requireNonNull(net.minecraft.world.level.block.state.properties.BlockStateProperties.LIT), true)), 3);
                 level.scheduleTick(core, Objects.requireNonNull(machine.getBlockState().getBlock()), 20);
@@ -172,14 +182,13 @@ public final class ConstructionManager extends SavedData {
         long time = level.getGameTime();
         ColonyWorkManager work = ColonyWorkManager.get(level);
         work.synchronizeSupplies(this);
-        if (time % 5 != 0) { work.tick(level, lastWorkers, ledger); return; }
-        List<WorkerEntity> workers = workers(level);
-        lastWorkers = workers;
+        List<WorkerEntity> workers = time % 5 == 0 ? workers(level) : lastWorkers;
+        if (time % 5 == 0) lastWorkers = workers;
         boolean workChanged = work.needsDispatch();
-        if (reallocate || workChanged || time % 20 == 0) {
+        if (time % 5 == 0 && (reallocate || workChanged || time % 20 == 0)) {
             dispatch(level, workers, time); reallocate = false;
         }
-        pathBudget = 16;
+        pathBudget = time % 5 == 0 ? 16 : 4;
         for (WorkerEntity worker : workers) execute(level, Objects.requireNonNull(worker), time);
         work.tick(level, workers, ledger);
         if (time % 20 == 0) {
@@ -210,7 +219,8 @@ public final class ConstructionManager extends SavedData {
             pathBudget = projectBudget;
             String activeReason = "";
             for (WorkerEntity worker : workers) {
-                if (assigned.contains(worker.getUUID()) || !project.owner.equals(worker.owner())) continue;
+                if (!worker.available() || !worker.preferences().allows(dev.colony.camera.worker.WorkerPreferences.Task.BUILD) && !project.id().equals(worker.cargoTask())
+                        || assigned.contains(worker.getUUID()) || !project.owner.equals(worker.owner())) continue;
                 project.reason = "queued";
                 Assignment previous = worker.assignment;
                 Assignment next = findAssignment(level, worker, project, previous, units, time);
@@ -222,7 +232,7 @@ public final class ConstructionManager extends SavedData {
                         || !Objects.equals(previous.source, next.source) || !previous.stand.equals(next.stand) || !Objects.equals(previous.storage, next.storage)) {
                     worker.getNavigation().stop();
                     if (!worker.getMainHandItem().isEmpty() && !GroundResources.matches(Objects.requireNonNull(worker.getMainHandItem()), project.plan.units().get(next.unit).item())) dropCarried(worker);
-                } else next.deadline = previous.deadline;
+                } else { next.deadline = previous.deadline; next.actionProgress = previous.actionProgress; }
                 worker.assignment = next;
                 worker.workTask = null;
                 if (next.source == null) worker.cargoTask(project.id());
@@ -233,7 +243,7 @@ public final class ConstructionManager extends SavedData {
             pathBudget = remainingBudget - (projectBudget - pathBudget);
         }
         for (WorkerEntity worker : workers) if (!assigned.contains(worker.getUUID())) {
-            worker.assignment = null; worker.workTask = null; worker.getNavigation().stop();
+            worker.assignment = null; worker.workTask = null; if (worker.available()) worker.getNavigation().stop();
         }
     }
     /** Recover untagged pre-1.6.1 deliveries before an older sweep can take them. */
@@ -249,7 +259,7 @@ public final class ConstructionManager extends SavedData {
             for (int index = 0; index < project.plan.units().size(); index++) {
                 if (project.completed.get(index)) continue;
                 BuildPlan.Unit unit = Objects.requireNonNull(project.plan.units().get(index));
-                if (held.getCount() >= unit.count() && GroundResources.matches(held, unit.item())
+                if (worker.cargoCount() >= unit.count() && GroundResources.matches(held, unit.item())
                         && worker.distanceToSqr(GroundResources.center(unit.anchor())) <= (long) WorkerEntity.NAVIGATION_RANGE * WorkerEntity.NAVIGATION_RANGE) {
                     worker.cargoTask(project.id()); return true;
                 }
@@ -260,6 +270,11 @@ public final class ConstructionManager extends SavedData {
     @Nullable private Assignment findAssignment(ServerLevel level, WorkerEntity worker, ConstructionProject project,
             @Nullable Assignment previous, Set<String> claimed, long time) {
         if (!GroundResources.searchAreaLoaded(level, worker)) { project.reason = "unloaded"; return null; }
+        UUID cargoId = worker.cargoTask(); ConstructionProject delivery = cargoId == null ? null : projects.get(cargoId);
+        if (delivery != null && !delivery.id().equals(project.id()) && !delivery.cancelled && !delivery.finished()
+                && (delivery.paused || ProjectOrder.COMPARATOR.compare(delivery.order(), project.order()) <= 0)) {
+            project.reason = "queued"; return null;
+        }
         int size = project.plan.units().size();
         int start = previous != null && previous.project.equals(project.id()) ? previous.unit : project.cursor;
         for (int offset = 0; offset < Math.min(64, size); offset++) {
@@ -272,7 +287,7 @@ public final class ConstructionManager extends SavedData {
             String problem = problem(level, unit, project.palette);
             if (!problem.isEmpty()) { project.reason = problem; continue; }
             ItemStack carried = Objects.requireNonNull(worker.getMainHandItem());
-            boolean carrying = GroundResources.matches(carried, unit.item()) && carried.getCount() >= unit.count();
+            boolean carrying = GroundResources.matches(carried, unit.item()) && worker.cargoCount() >= unit.count();
             List<ItemEntity> sources = carrying ? Objects.requireNonNull(List.of()) : Objects.requireNonNull(ground
                     .computeIfAbsent(worker.getUUID(), ignored -> GroundResources.scan(level, worker)).getOrDefault(unit.item(), List.of()));
             project.groundKnown = sources.stream().mapToInt(e -> e.getItem().getCount()).sum();
@@ -299,7 +314,8 @@ public final class ConstructionManager extends SavedData {
                 if (!usePathBudget()) { project.reason = "queued"; return null; }
                 Path path = GroundResources.path(level, worker, Objects.requireNonNull(source.blockPosition()));
                 if (path == null) { failedSources.put(attempt, time + 100); continue; }
-                if (ledger.reserve(worker.getUUID(), project.id(), source.getUUID(), source.getItem().getCount(), unit.count())) {
+                int quantity = Math.min(source.getItem().getCount() - ledger.reserved(source.getUUID()), materialBatch(worker, project, unit));
+                if (ledger.reserve(worker.getUUID(), project.id(), source.getUUID(), source.getItem().getCount(), quantity)) {
                     project.cursor = index;
                     return new Assignment(project.id(), index, stand, Objects.requireNonNull(source.getUUID()), time + 240);
                 }
@@ -312,7 +328,8 @@ public final class ConstructionManager extends SavedData {
                 if (source.count() - ledger.reserved(source.identity()) < unit.count()) continue;
                 BlockPos pickup = findStorageStand(level, worker, source.pos());
                 if (pickup == null) { if (pathBudget > 0) failedSources.put(attempt, time + 100); continue; }
-                if (ledger.reserve(worker.getUUID(), project.id(), source.identity(), source.count(), unit.count())) {
+                int quantity = Math.min(source.count() - ledger.reserved(source.identity()), materialBatch(worker, project, unit));
+                if (ledger.reserve(worker.getUUID(), project.id(), source.identity(), source.count(), quantity)) {
                     project.cursor = index;
                     Assignment next = new Assignment(project.id(), index, stand, Objects.requireNonNull(source.identity()), time + 240);
                     next.storage = new StorageResources.Claim(source.pos(), pickup); return next;
@@ -326,6 +343,7 @@ public final class ConstructionManager extends SavedData {
     }
 
     private void execute(ServerLevel level, WorkerEntity worker, long time) {
+        if (!worker.available()) return;
         Assignment task = worker.assignment;
         if (task == null) return;
         ConstructionProject project = projects.get(task.project);
@@ -343,14 +361,19 @@ public final class ConstructionManager extends SavedData {
                 project.reason = "source_changed"; release(worker); reallocate = true; return;
             }
             if (!StorageResources.canTake(level, worker, source.pos())) { move(level, worker, Objects.requireNonNull(storageTask.pickupStand())); return; }
+            worker.practice(dev.colony.camera.worker.WorkerAttribute.HAULING, time, 1);
+            task.actionProgress += 1;
+            if (task.actionProgress < dev.colony.camera.worker.WorkerEffects.haulTicks(worker.state())) return;
+            task.actionProgress = 0;
             if (!usePathBudget()) return;
             Path delivery = GroundResources.path(level, worker, task.stand);
             var actor = FakePlayerFactory.get(level, new GameProfile(project.owner, project.ownerName));
             if (delivery == null || !level.mayInteract(Objects.requireNonNull(actor), source.pos())) { project.reason = "unreachable"; release(worker); reallocate = true; return; }
             if (!worker.getMainHandItem().isEmpty()) { dropCarried(worker); if (!worker.getMainHandItem().isEmpty()) return; }
-            ItemStack taken = source.take(unit.count());
+            var claim = ledger.claim(worker.getUUID()); if (claim == null) return;
+            ItemStack taken = source.take(claim.quantity());
             if (taken.isEmpty()) { release(worker); reallocate = true; return; }
-            worker.setItemSlot(EquipmentSlot.MAINHAND, taken); ledger.release(worker.getUUID()); task.storage = null; task.source = null;
+            worker.carry(taken); ledger.release(worker.getUUID()); task.storage = null; task.source = null;
             worker.cargoTask(project.id());
             task.deadline = time + 240; GroundResources.follow(level, worker, delivery); project.reason = "transporting"; return;
         }
@@ -364,6 +387,10 @@ public final class ConstructionManager extends SavedData {
             if (!GroundResources.canPickUp(level, worker, source)) {
                 move(level, worker, Objects.requireNonNull(source.blockPosition())); return;
             }
+            worker.practice(dev.colony.camera.worker.WorkerAttribute.HAULING, time, 1);
+            task.actionProgress += 1;
+            if (task.actionProgress < dev.colony.camera.worker.WorkerEffects.haulTicks(worker.state())) return;
+            task.actionProgress = 0;
             // Prove the second leg from the actual pickup position before taking any material.
             if (!usePathBudget()) return;
             Path delivery = GroundResources.path(level, worker, task.stand);
@@ -373,24 +400,33 @@ public final class ConstructionManager extends SavedData {
             if (ForgeEventFactory.onItemPickup(source, actor) < 0 || !GroundResources.eligible(source, worker, unit.item()) || source.getItem().getCount() < unit.count()) {
                 project.reason = "denied"; release(worker); reallocate = true; return;
             }
-            ItemStack taken = source.getItem().copy(); taken.setCount(unit.count());
-            ItemStack remaining = source.getItem().copy(); remaining.shrink(unit.count());
+            var claim = ledger.claim(worker.getUUID()); if (claim == null) return;
+            ItemStack taken = source.getItem().copy(); taken.setCount(claim.quantity());
+            ItemStack remaining = source.getItem().copy(); remaining.shrink(claim.quantity());
             if (remaining.isEmpty()) source.discard(); else source.setItem(remaining);
-            worker.setItemSlot(EquipmentSlot.MAINHAND, taken);
+            worker.carry(taken);
             worker.cargoTask(project.id());
             ledger.release(worker.getUUID()); task.source = null; task.deadline = time + 240;
             GroundResources.follow(level, worker, delivery); project.reason = "transporting";
             return;
         }
-        if (!GroundResources.matches(Objects.requireNonNull(worker.getMainHandItem()), unit.item()) || worker.getMainHandItem().getCount() < unit.count()) {
+        if (!GroundResources.matches(Objects.requireNonNull(worker.getMainHandItem()), unit.item()) || worker.cargoCount() < unit.count()) {
             release(worker); reallocate = true; return;
         }
-        if (worker.position().distanceToSqr(GroundResources.bottom(task.stand)) > 1.2) { move(level, worker, task.stand); return; }
+        boolean blocksPlacement = unit.blocks().stream().anyMatch(block -> {
+            var shape = Objects.requireNonNull(block).state().getCollisionShape(level, block.pos());
+            return !shape.isEmpty() && shape.bounds().move(block.pos()).intersects(Objects.requireNonNull(worker.getBoundingBox()));
+        });
+        // Broad arrival tolerance cannot stop the worker with its body still overlapping the future block.
+        if (worker.position().distanceToSqr(GroundResources.bottom(task.stand)) > 1.2 || blocksPlacement) { move(level, worker, task.stand); return; }
         if (!standable(level, task.stand) || worker.distanceToSqr(GroundResources.center(unit.anchor())) > 16) {
             project.reason = "unreachable"; release(worker); reallocate = true; return;
         }
+        task.actionProgress += 1;
+        worker.practice(dev.colony.camera.worker.WorkerAttribute.BUILDING, time, 1);
+        if (task.actionProgress < dev.colony.camera.worker.WorkerEffects.buildTicks(worker.state(), time)) return;
         if (place(level, worker, project, unit)) {
-            worker.getMainHandItem().shrink(unit.count());
+            worker.consumeCargo(unit.count());
             if (worker.getMainHandItem().isEmpty()) {
                 worker.setItemSlot(EquipmentSlot.MAINHAND, Objects.requireNonNull(ItemStack.EMPTY));
                 worker.cargoTask(null);
@@ -499,11 +535,16 @@ public final class ConstructionManager extends SavedData {
     }
     private void release(WorkerEntity worker) { ledger.release(worker.getUUID()); worker.assignment = null; worker.getNavigation().stop(); }
     private static void dropCarried(WorkerEntity worker) {
-        ItemStack carried = worker.getMainHandItem();
-        if (!carried.isEmpty() && worker.spawnAtLocation(Objects.requireNonNull(carried.copy())) != null) {
-            worker.setItemSlot(EquipmentSlot.MAINHAND, Objects.requireNonNull(ItemStack.EMPTY));
-            worker.cargoTask(null);
+        worker.dropCargo();
+    }
+    private static int materialBatch(WorkerEntity worker, ConstructionProject project, BuildPlan.Unit current) {
+        int capacity = Math.max(current.count(), dev.colony.camera.worker.WorkerEffects.capacity(worker.state()));
+        int wanted = 0;
+        for (int i = 0; i < project.plan.units().size() && wanted < capacity; i++) {
+            BuildPlan.Unit unit = Objects.requireNonNull(project.plan.units().get(i));
+            if (!project.completed.get(i) && unit.item() == current.item()) wanted = Math.min(capacity, wanted + unit.count());
         }
+        return Math.max(current.count(), wanted);
     }
     private boolean usePathBudget() { if (pathBudget <= 0) return false; pathBudget--; return true; }
     public boolean readOnly() { return rejectedData != null; }

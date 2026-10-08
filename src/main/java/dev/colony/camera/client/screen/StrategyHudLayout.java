@@ -10,7 +10,7 @@ import javax.annotation.Nullable;
 /** Drawing and hit geometry, measured in scaled GUI pixels. */
 public final class StrategyHudLayout {
     public enum Action { BUILD, PROJECTION_MENU, COLONY_MENU, MINE, SWEEP, SAVE_PRESET, LIBRARY,
-        SIMILAR_LIMIT, WORK, PEOPLE, CRAFT, TECHNOLOGY, PROJECTS, ANGLE_LOCK, HELP, EXIT }
+        SIMILAR_LIMIT, VOLUME_FILTER, RESIDENCES, WORK, PEOPLE, CRAFT, TECHNOLOGY, PROJECTS, ANGLE_LOCK, HELP, EXIT }
     public enum Menu { NONE, PROJECTION, COLONY }
 
     public record Rect(int x, int y, int width, int height) {
@@ -68,10 +68,10 @@ public final class StrategyHudLayout {
         int middleLeft = leftDock.right() + gap, middleRight = rightDock.x() - gap;
         int pw = Math.min(248, Math.max(0, middleRight - middleLeft));
         placement = new Rect(middleLeft + (Math.max(0, middleRight - middleLeft) - pw) / 2, leftDock.y(), pw, lh);
-        projectionMenu = menu(width, margin, leftDock, false, 4, 0, textWidth);
-        colonyMenu = menu(width, margin, rightDock, true, 5, 38, textWidth);
-        projectionControls = menuControls(projectionMenu, 0, new Action[]{Action.SAVE_PRESET, Action.LIBRARY, Action.BUILD, Action.SIMILAR_LIMIT});
-        colonyControls = menuControls(colonyMenu, Math.min(38, colonyMenu.height() / 3), new Action[]{Action.PEOPLE, Action.WORK, Action.CRAFT, Action.TECHNOLOGY, Action.PROJECTS});
+        projectionMenu = menu(width, margin, leftDock, false, 5, 0, textWidth);
+        colonyMenu = menu(width, margin, rightDock, true, 6, 38, textWidth);
+        projectionControls = menuControls(projectionMenu, 0, new Action[]{Action.SAVE_PRESET, Action.LIBRARY, Action.BUILD, Action.SIMILAR_LIMIT, Action.VOLUME_FILTER});
+        colonyControls = menuControls(colonyMenu, Math.min(38, colonyMenu.height() / 3), new Action[]{Action.PEOPLE, Action.RESIDENCES, Action.WORK, Action.CRAFT, Action.TECHNOLOGY, Action.PROJECTS});
     }
     private static int groupWidth(Action[] actions, ToIntFunction<Action> measure, int inset, int gap) {
         int width = 2 * inset + (actions.length - 1) * gap;
@@ -92,8 +92,8 @@ public final class StrategyHudLayout {
     @Nonnull private static Rect centered(int width, int size, int y, int height) { return new Rect((width - size) / 2, y, size, height); }
     @Nonnull private static Rect menu(int width, int margin, Rect dock, boolean right, int count, int header, ToIntFunction<Action> measure) {
         int requested = 150;
-        Action[] entries = right ? new Action[]{Action.PEOPLE, Action.WORK, Action.CRAFT, Action.TECHNOLOGY, Action.PROJECTS}
-                : new Action[]{Action.SAVE_PRESET, Action.LIBRARY, Action.BUILD, Action.SIMILAR_LIMIT};
+        Action[] entries = right ? new Action[]{Action.PEOPLE, Action.RESIDENCES, Action.WORK, Action.CRAFT, Action.TECHNOLOGY, Action.PROJECTS}
+                : new Action[]{Action.SAVE_PRESET, Action.LIBRARY, Action.BUILD, Action.SIMILAR_LIMIT, Action.VOLUME_FILTER};
         for (Action action : entries) requested = Math.max(requested, measure.applyAsInt(action) + 20);
         int w = Math.min(requested, width - 2 * margin), h = Math.min(header + count * 22 + 8, Math.max(0, dock.y() - margin - 4));
         int x = right ? Math.max(margin, dock.right() - w) : margin;

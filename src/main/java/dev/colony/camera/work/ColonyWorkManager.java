@@ -71,15 +71,21 @@ public final class ColonyWorkManager extends SavedData {
     public void mine(ServerPlayer player, List<BlockPos> selection) {
         validatePlayer(player);
         if (selection.isEmpty()) throw new IllegalArgumentException("empty");
-        if (selection.size() > 8192 || selection.size() + jobs(Objects.requireNonNull(player.getUUID())).stream().filter(job -> job.kind == ColonyJob.Kind.MINE).mapToInt(job -> job.targets.size()).sum() > ConstructionManager.MAX_BLOCKS) throw new IllegalArgumentException("limit");
+        if (selection.size() > 8192 || selection.size() + jobs(Objects.requireNonNull(player.getUUID())).stream()
+                .filter(job -> job.kind == ColonyJob.Kind.MINE || job.surfaceSweep).mapToInt(job -> job.targets.size()).sum()
+                > ConstructionManager.MAX_BLOCKS) throw new IllegalArgumentException("limit");
         var unique = new HashSet<BlockPos>(selection); if (unique.size() != selection.size()) throw new IllegalArgumentException("invalid");
         ServerLevel level = Objects.requireNonNull(player.serverLevel());
         var origins = Objects.requireNonNull(PrintingCores.owned(level, Objects.requireNonNull(player.getUUID())));
         for (BlockPos pos : selection) location(player, Objects.requireNonNull(pos), origins);
-        for (var old : jobs.values()) if (old.kind == ColonyJob.Kind.MINE && !old.cancelled && !old.finished() && old.targets.stream().anyMatch(unique::contains)) throw new IllegalArgumentException("overlap");
+        List<BlockPos> solid = Objects.requireNonNull(selection.stream().filter(pos -> !level.getBlockState(Objects.requireNonNull(pos)).isAir()).toList());
+        if (solid.isEmpty()) throw new IllegalArgumentException("empty");
+        unique = new HashSet<>(solid);
+        Set<BlockPos> accepted = unique;
+        for (var old : jobs.values()) if (old.kind == ColonyJob.Kind.MINE && !old.cancelled && !old.finished() && old.targets.stream().anyMatch(accepted::contains)) throw new IllegalArgumentException("overlap");
         ColonyJob job = begin(player, ColonyJob.Kind.MINE);
-        job.targets = Objects.requireNonNull(List.copyOf(selection));
-        job.expectedStates = Objects.requireNonNull(selection.stream().map(pos -> BlockStateParser.serialize(Objects.requireNonNull(level.getBlockState(Objects.requireNonNull(pos))))).toList());
+        job.targets = solid;
+        job.expectedStates = Objects.requireNonNull(solid.stream().map(pos -> BlockStateParser.serialize(Objects.requireNonNull(level.getBlockState(Objects.requireNonNull(pos))))).toList());
         add(job);
     }
     public void sweep(ServerPlayer player, BlockPos min, BlockPos max) {
@@ -91,9 +97,37 @@ public final class ColonyWorkManager extends SavedData {
         }
         ColonyJob job = begin(player, ColonyJob.Kind.SWEEP); job.targets = Objects.requireNonNull(List.of(min, max)); add(job);
     }
+    /** Exact floor cells, not a bounding cuboid: disconnected selections leave the gaps alone. */
+    public void sweep(ServerPlayer player, List<BlockPos> selection) {
+        validatePlayer(player);
+        if (selection.isEmpty()) throw new IllegalArgumentException("empty");
+        if (selection.size() > 8192 || selection.size() + jobs(Objects.requireNonNull(player.getUUID())).stream()
+                .filter(job -> job.surfaceSweep || job.kind == ColonyJob.Kind.MINE).mapToInt(job -> job.targets.size()).sum()
+                > ConstructionManager.MAX_BLOCKS) throw new IllegalArgumentException("limit");
+        if (new HashSet<>(selection).size() != selection.size()) throw new IllegalArgumentException("invalid");
+        ServerLevel level = Objects.requireNonNull(player.serverLevel());
+        var origins = Objects.requireNonNull(PrintingCores.owned(level, Objects.requireNonNull(player.getUUID())));
+        for (BlockPos pos : selection) { location(player, Objects.requireNonNull(pos), origins); if (level.getBlockState(pos).isAir()) throw new IllegalArgumentException("invalid"); }
+        ColonyJob job = begin(player, ColonyJob.Kind.SWEEP); job.surfaceSweep = true; job.targets = Objects.requireNonNull(List.copyOf(selection)); add(job);
+    }
     private static void validateBounds(BlockPos min, BlockPos max) {
         long x = (long) max.getX() - min.getX() + 1, y = (long) max.getY() - min.getY() + 1, z = (long) max.getZ() - min.getZ() + 1;
         if (x < 1 || y < 1 || z < 1 || x > 256 || y > 256 || z > 256 || x * y * z > 262144) throw new IllegalArgumentException("limit");
+    }
+    public void sweepItems(ServerPlayer player, List<String> types) {
+        validatePlayer(player);
+        if (types.isEmpty()) throw new IllegalArgumentException("empty");
+        if (types.size() > 64 || new HashSet<>(types).size() != types.size()) throw new IllegalArgumentException("limit");
+        for (String type : types) {
+            var id = net.minecraft.resources.ResourceLocation.tryParse(Objects.requireNonNull(type));
+            if (type.length() > 256 || id == null || !net.minecraftforge.registries.ForgeRegistries.ITEMS.containsKey(id)
+                    || net.minecraftforge.registries.ForgeRegistries.ITEMS.getValue(id) == net.minecraft.world.item.Items.AIR) throw new IllegalArgumentException("invalid");
+        }
+        var level = Objects.requireNonNull(player.serverLevel()); ColonyJob job = begin(player, ColonyJob.Kind.SWEEP);
+        var origins = new java.util.LinkedHashSet<BlockPos>(); origins.add(Objects.requireNonNull(player.blockPosition()));
+        origins.addAll(PrintingCores.owned(level, Objects.requireNonNull(player.getUUID())).stream().limit(63).toList());
+        job.targets = Objects.requireNonNull(List.copyOf(origins)); job.itemTypes = Objects.requireNonNull(List.copyOf(types));
+        job.sweepDrops = ItemSweepService.capture(level, job); add(job);
     }
     public void craft(ServerPlayer player, BlockPos station, String recipe, int count) {
         validatePlayer(player); station(player, station, false);
@@ -135,7 +169,7 @@ public final class ColonyWorkManager extends SavedData {
         switch (action) {
             case "priority" -> job.priority = new ProjectOrder(id, value, job.sequence).priority();
             case "pause" -> job.paused = !job.paused;
-            case "cancel" -> job.cancelled = true;
+            case "cancel" -> { job.cancelled = true; if (job.kind == ColonyJob.Kind.MINE) job.miningProgress().restore(new int[0]); }
             case "remove" -> { if (job.cancelled || job.finished()) jobs.remove(id); }
             default -> throw new IllegalArgumentException("invalid");
         }
@@ -153,20 +187,24 @@ public final class ColonyWorkManager extends SavedData {
     public void dispatchJob(ServerLevel level, ColonyJob job, List<WorkerEntity> workers, Set<UUID> assigned, Set<BlockPos> claimed, ReservationLedger ledger, long time) {
         job.reason = job.cancelled ? "cancelled" : job.paused ? "paused" : job.finished() ? "complete" : "no_worker";
         if (!job.runnable() || readOnly()) return;
+        if (job.kind == ColonyJob.Kind.MINE) {
+            MiningScheduler.dispatch(level, job, workers, assigned, claimed, ledger, time); setDirty(); return;
+        }
         var station = job.station;
         if (station != null && claimed.contains(station)) { job.reason = "queued"; return; }
-        job.miningCursors.keySet().removeIf(id -> workers.stream().noneMatch(worker -> worker.getUUID().equals(id)));
         var candidates = new ArrayList<>(workers);
-        // Existing miners claim their unfinished units before newly free workers can take those blocks.
+        // Retain active non-mining jobs when the same work position is still available.
         candidates.sort(Comparator.comparingInt(worker -> {
             WorkTask current = Objects.requireNonNull(worker).workTask;
             return current != null && current.job.equals(job.id) && current.deadline >= time ? 0 : 1;
         }));
         String activeReason = "";
         for (WorkerEntity worker : candidates) {
-            if (assigned.contains(worker.getUUID()) || !job.owner.equals(worker.owner())) continue;
+            if (!worker.available() || !worker.preferences().allows(Objects.requireNonNull(dev.colony.camera.worker.WorkerPreferences.Task.valueOf(Objects.requireNonNull(job.kind.name()))))
+                    && !(job.kind == ColonyJob.Kind.SWEEP && job.id.equals(worker.cargoTask()))
+                    || assigned.contains(worker.getUUID()) || !job.owner.equals(worker.owner())) continue;
             WorkTask next = switch (job.kind) {
-                case MINE -> MiningService.assign(level, worker, job, claimed, ledger, time);
+                case MINE -> throw new IllegalStateException("Mining is dispatched by its spatial planner");
                 case SWEEP -> SweepService.assign(level, worker, job, ledger, time);
                 case CRAFT, RESEARCH -> CraftingService.assign(level, worker, job, ledger, time);
             };
@@ -176,21 +214,22 @@ public final class ColonyWorkManager extends SavedData {
                     && previous.stand.equals(next.stand) && Objects.equals(previous.source, next.source)
                     && Objects.equals(previous.destination, next.destination) && previous.toolPickup == next.toolPickup) {
                 next.progress = previous.progress; next.lastWorked = previous.lastWorked; next.deadline = previous.deadline;
+                next.actionProgress = previous.actionProgress; next.fractionalProgress = previous.fractionalProgress;
             } else worker.getNavigation().stop();
             worker.assignment = null; worker.workTask = next; assigned.add(worker.getUUID());
             activeReason = job.reason;
-            if (job.kind == ColonyJob.Kind.MINE) claimed.add(job.targets.get(next.targetIndex));
             // A station is a single work position; disjoint stations may run concurrently.
             if (job.kind == ColonyJob.Kind.CRAFT || job.kind == ColonyJob.Kind.RESEARCH) { claimed.add(Objects.requireNonNull(job.station)); break; }
         }
         if (!activeReason.isEmpty()) job.reason = activeReason;
+        ItemSweepService.finish(level, job, workers);
         setDirty();
     }
     public void tick(ServerLevel level, List<WorkerEntity> workers, ReservationLedger ledger) {
         if (readOnly() || ConstructionManager.get(level).readOnly()) return;
         long time = level.getGameTime();
         for (WorkerEntity worker : workers) {
-            if (!worker.isAlive() || worker.level() != level || !GroundResources.loaded(level, Objects.requireNonNull(worker.blockPosition()))) continue;
+            if (!worker.isAlive() || !worker.available() || worker.level() != level || !GroundResources.loaded(level, Objects.requireNonNull(worker.blockPosition()))) continue;
             WorkTask task = worker.workTask; if (task == null) continue;
             ColonyJob job = jobs.get(task.job);
             if (job == null || !job.runnable() || time > task.deadline || !GroundResources.searchAreaLoaded(level, worker)) { release(worker, ledger); continue; }
@@ -205,7 +244,14 @@ public final class ColonyWorkManager extends SavedData {
                 case CRAFT, RESEARCH -> CraftingService.execute(level, worker, job, task, ledger, time);
             };
             if (wasToolPickup && !task.toolPickup) ledger.release(worker.getUUID());
-            if (ended) { setDirty(); release(worker, ledger); }
+            if (job.kind != ColonyJob.Kind.SWEEP) setDirty();
+            if (ended) {
+                setDirty();
+                WorkTask next = job.kind == ColonyJob.Kind.MINE && !changed && job.completed.get(task.targetIndex)
+                        ? MiningScheduler.continueHere(level, worker, job, task, workers, ledger, time) : null;
+                if (next != null) { worker.workTask = next; ledger.release(worker.getUUID()); }
+                else release(worker, ledger);
+            }
         }
         if (time % 20 == 0) for (ServerPlayer player : level.players()) WorkNetwork.snapshot(Objects.requireNonNull(player), "");
     }
@@ -214,7 +260,7 @@ public final class ColonyWorkManager extends SavedData {
         JsonObject root = new JsonObject(); JsonArray list = new JsonArray();
         for (ColonyJob job : jobs(Objects.requireNonNull(player.getUUID()))) {
             JsonObject entry = new JsonObject(); entry.addProperty("id", job.id.toString()); entry.addProperty("kind", job.kind.name());
-            entry.addProperty("name", "colonycamera.work.kind." + job.kind.name().toLowerCase(java.util.Locale.ROOT)); entry.addProperty("priority", job.priority);
+            entry.addProperty("name", job.itemSweep() ? "colonycamera.work.item_sweep" : "colonycamera.work.kind." + job.kind.name().toLowerCase(java.util.Locale.ROOT)); entry.addProperty("priority", job.priority);
             entry.addProperty("supply", job.parentProject != null);
             if (job.parentProject != null) entry.addProperty("name", CraftingService.output(Objects.requireNonNull(player.serverLevel()), job.recipe).getDescriptionId());
             entry.addProperty("done", job.done); entry.addProperty("total", job.total()); entry.addProperty("reason", job.reason);
@@ -225,8 +271,9 @@ public final class ColonyWorkManager extends SavedData {
         }
         root.add("jobs", list); JsonArray workers = new JsonArray();
         for (WorkerEntity worker : ConstructionManager.get(Objects.requireNonNull(player.serverLevel())).workers(Objects.requireNonNull(player.serverLevel()))) if (player.getUUID().equals(worker.owner())) {
-            JsonObject entry = new JsonObject(); entry.addProperty("id", worker.getUUID().toString()); entry.addProperty("miningLevel", worker.miningLevel()); entry.addProperty("xp", worker.miningXp());
+            JsonObject entry = new JsonObject(); entry.addProperty("id", worker.getUUID().toString()); entry.addProperty("miningLevel", worker.miningLevel()); entry.addProperty("mined", worker.minedBlocks());
             entry.addProperty("tool", String.valueOf(net.minecraftforge.registries.ForgeRegistries.ITEMS.getKey(worker.getOffhandItem().getItem())));
+            entry.add("state", dev.colony.camera.worker.WorkerSnapshots.person(worker));
             var task = worker.workTask; var assignment = worker.assignment;
             if (task != null) entry.addProperty("job", task.job.toString());
             if (assignment != null) entry.addProperty("project", assignment.project.toString());
@@ -235,29 +282,39 @@ public final class ColonyWorkManager extends SavedData {
         root.add("workers", workers); JsonArray stations = new JsonArray();
         for (BlockPos pos : WorkStations.owned(Objects.requireNonNull(player.serverLevel()), Objects.requireNonNull(player.getUUID())).stream().limit(128).toList()) {
             if (!(player.serverLevel().getBlockEntity(Objects.requireNonNull(pos)) instanceof MachineBlockEntity machine)) continue;
+            if (machine.kind() != ColonyContent.Kind.COLONY_WORKBENCH && machine.kind() != ColonyContent.Kind.RESEARCH_DESK) continue;
             JsonObject entry = new JsonObject(); entry.addProperty("pos", pos.asLong()); entry.addProperty("research", machine.kind() == ColonyContent.Kind.RESEARCH_DESK); stations.add(entry);
         }
         root.add("stations", stations); root.add("tech", TechProgress.describe(Objects.requireNonNull(player.serverLevel()), Objects.requireNonNull(player.getUUID())));
-        root.add("recipes", CraftingService.catalog(Objects.requireNonNull(player.serverLevel()), Objects.requireNonNull(player.getUUID()))); return root;
+        // Vanilla already synchronizes the recipe registry. Availability is queried for the
+        // visible page, rather than broadcasting every recipe and its alternatives each second.
+        dev.colony.camera.worker.WorkerSnapshots.colony(player, root); return root;
     }
     @Override @Nonnull public CompoundTag save(CompoundTag root) {
         if (rejected != null) return Objects.requireNonNull(rejected.copy());
-        root.putInt("schemaVersion", 2); ListTag list = new ListTag();
+        root.putInt("schemaVersion", 6); ListTag list = new ListTag();
         for (ColonyJob job : jobs.values()) {
             CompoundTag tag = new CompoundTag(); tag.putUUID("id", job.id); tag.putUUID("owner", job.owner); tag.putString("ownerName", job.ownerName);
             tag.putString("kind", Objects.requireNonNull(job.kind.name())); tag.putInt("priority", job.priority); tag.putLong("sequence", job.sequence);
             tag.putLongArray("targets", Objects.requireNonNull(job.targets.stream().mapToLong((BlockPos checkedElement) -> Objects.requireNonNull(checkedElement).asLong()).toArray())); ListTag states = new ListTag();
+            if (job.kind == ColonyJob.Kind.SWEEP) {
+                tag.putBoolean("surfaceSweep", job.surfaceSweep); ListTag types = new ListTag(), drops = new ListTag();
+                for (String type : job.itemTypes) types.add(Objects.requireNonNull(StringTag.valueOf(Objects.requireNonNull(type))));
+                for (UUID drop : job.sweepDrops) drops.add(Objects.requireNonNull(StringTag.valueOf(Objects.requireNonNull(drop.toString()))));
+                tag.put("itemTypes", types); tag.put("sweepDrops", drops);
+            }
             for (String state : job.expectedStates) states.add(Objects.requireNonNull(StringTag.valueOf(Objects.requireNonNull(state)))); tag.put("states", states);
+            if (job.kind == ColonyJob.Kind.MINE) tag.putIntArray("miningProgress", job.miningProgress().snapshot());
             if (job.station != null) tag.putLong("station", job.station.asLong()); tag.putString("recipe", job.recipe); tag.putInt("requested", job.requested);
             UUID parent = job.parentProject; if (parent != null) tag.putUUID("parentProject", parent);
-            tag.putInt("done", job.done); tag.putLongArray("completed", Objects.requireNonNull(job.completed.toLongArray())); tag.putBoolean("paused", job.paused); tag.putBoolean("cancelled", job.cancelled); list.add(tag);
+            tag.putInt("done", job.done); tag.putDouble("workProgress", job.workProgress); tag.putLongArray("completed", Objects.requireNonNull(job.completed.toLongArray())); tag.putBoolean("paused", job.paused); tag.putBoolean("cancelled", job.cancelled); list.add(tag);
         }
         root.put("jobs", list); return root;
     }
     @Nonnull public static ColonyWorkManager load(CompoundTag root) {
         ColonyWorkManager manager = new ColonyWorkManager();
         try {
-            if (!root.contains("schemaVersion", Tag.TAG_INT) || root.getInt("schemaVersion") != 1 && root.getInt("schemaVersion") != 2 || !(root.get("jobs") instanceof ListTag entries)
+            if (!root.contains("schemaVersion", Tag.TAG_INT) || root.getInt("schemaVersion") < 1 || root.getInt("schemaVersion") > 6 || !(root.get("jobs") instanceof ListTag entries)
                     || entries.size() > 4096 || !entries.isEmpty() && entries.getElementType() != Tag.TAG_COMPOUND) throw new IllegalArgumentException("data");
             for (int i = 0; i < entries.size(); i++) {
                 CompoundTag tag = entries.getCompound(i);
@@ -268,6 +325,22 @@ public final class ColonyWorkManager extends SavedData {
                 ColonyJob job = new ColonyJob(Objects.requireNonNull(tag.getUUID("id")), Objects.requireNonNull(tag.getUUID("owner")), Objects.requireNonNull(tag.getString("ownerName")),
                         Objects.requireNonNull(ColonyJob.Kind.valueOf(Objects.requireNonNull(tag.getString("kind")))), tag.getInt("priority"), tag.getLong("sequence"));
                 job.targets = Objects.requireNonNull(java.util.Arrays.stream(tag.getLongArray("targets")).mapToObj(BlockPos::of).toList());
+                if (job.kind == ColonyJob.Kind.SWEEP && root.getInt("schemaVersion") >= 5) {
+                    if (!tag.contains("surfaceSweep", Tag.TAG_BYTE)) throw new IllegalArgumentException("data");
+                    job.surfaceSweep = tag.getBoolean("surfaceSweep");
+                }
+                if (job.kind == ColonyJob.Kind.SWEEP && root.getInt("schemaVersion") >= 6) {
+                    if (!(tag.get("itemTypes") instanceof ListTag types) || types.size() > 64 || !types.isEmpty() && types.getElementType() != Tag.TAG_STRING
+                            || !(tag.get("sweepDrops") instanceof ListTag drops) || drops.size() > 8192 || !drops.isEmpty() && drops.getElementType() != Tag.TAG_STRING) throw new IllegalArgumentException("data");
+                    var typeIds = new ArrayList<String>(); var dropIds = new ArrayList<UUID>();
+                    for (int index = 0; index < types.size(); index++) {
+                        String type = Objects.requireNonNull(types.getString(index));
+                        if (type.length() > 256 || net.minecraft.resources.ResourceLocation.tryParse(type) == null) throw new IllegalArgumentException("data"); typeIds.add(type);
+                    }
+                    for (int index = 0; index < drops.size(); index++) dropIds.add(Objects.requireNonNull(UUID.fromString(drops.getString(index))));
+                    if (new HashSet<>(typeIds).size() != typeIds.size() || new HashSet<>(dropIds).size() != dropIds.size() || typeIds.isEmpty() && !dropIds.isEmpty()) throw new IllegalArgumentException("data");
+                    job.itemTypes = Objects.requireNonNull(List.copyOf(typeIds)); job.sweepDrops = Objects.requireNonNull(List.copyOf(dropIds));
+                }
                 var expected = new ArrayList<String>(); for (int state = 0; state < states.size(); state++) expected.add(states.getString(state)); job.expectedStates = Objects.requireNonNull(List.copyOf(expected));
                 job.station = tag.contains("station", Tag.TAG_LONG) ? BlockPos.of(tag.getLong("station")) : null; job.recipe = Objects.requireNonNull(tag.getString("recipe"));
                 if (root.getInt("schemaVersion") >= 2 && tag.contains("parentProject")) {
@@ -275,11 +348,28 @@ public final class ColonyWorkManager extends SavedData {
                     job.parentProject = Objects.requireNonNull(tag.getUUID("parentProject"));
                 }
                 job.requested = tag.getInt("requested"); job.done = tag.getInt("done"); job.completed.or(BitSet.valueOf(tag.getLongArray("completed")));
+                if (root.getInt("schemaVersion") >= 4 && !tag.contains("workProgress", Tag.TAG_DOUBLE)
+                        || tag.contains("workProgress") && (!tag.contains("workProgress", Tag.TAG_DOUBLE) || !Double.isFinite(tag.getDouble("workProgress")) || tag.getDouble("workProgress") < 0 || tag.getDouble("workProgress") > 10000000)) throw new IllegalArgumentException("data");
+                job.workProgress = tag.getDouble("workProgress");
                 job.paused = tag.getBoolean("paused"); job.cancelled = tag.getBoolean("cancelled");
                 if (job.done < 0 || job.requested < 1 || job.sequence == Long.MAX_VALUE || job.done > job.requested && job.kind != ColonyJob.Kind.MINE && job.kind != ColonyJob.Kind.SWEEP) throw new IllegalArgumentException("data");
                 if (job.kind == ColonyJob.Kind.MINE && (job.targets.isEmpty() || job.targets.size() > 8192 || new HashSet<>(job.targets).size() != job.targets.size()
                         || job.expectedStates.size() != job.targets.size() || job.completed.length() > job.targets.size() || job.done != job.completed.cardinality())) throw new IllegalArgumentException("data");
-                if (job.kind == ColonyJob.Kind.SWEEP) { if (job.targets.size() != 2 || job.completed.length() > 1) throw new IllegalArgumentException("data"); validateBounds(Objects.requireNonNull(job.targets.get(0)), Objects.requireNonNull(job.targets.get(1))); }
+                if (job.kind == ColonyJob.Kind.MINE && root.getInt("schemaVersion") >= 3) {
+                    if (!tag.contains("miningProgress", Tag.TAG_INT_ARRAY)) throw new IllegalArgumentException("data");
+                    job.miningProgress().restore(Objects.requireNonNull(tag.getIntArray("miningProgress")));
+                    for (int index = job.completed.nextSetBit(0); index >= 0; index = job.completed.nextSetBit(index + 1)) {
+                        if (job.miningProgress().get(index) != 0) throw new IllegalArgumentException("data");
+                    }
+                }
+                if (job.kind == ColonyJob.Kind.SWEEP) {
+                    if (job.completed.length() > 1) throw new IllegalArgumentException("data");
+                    if (job.itemSweep()) {
+                        if (job.surfaceSweep || job.targets.isEmpty() || job.targets.size() > 64 || new HashSet<>(job.targets).size() != job.targets.size()) throw new IllegalArgumentException("data");
+                    } else if (job.surfaceSweep) {
+                        if (job.targets.isEmpty() || job.targets.size() > 8192 || new HashSet<>(job.targets).size() != job.targets.size()) throw new IllegalArgumentException("data");
+                    } else { if (job.targets.size() != 2) throw new IllegalArgumentException("data"); validateBounds(Objects.requireNonNull(job.targets.get(0)), Objects.requireNonNull(job.targets.get(1))); }
+                }
                 if ((job.kind == ColonyJob.Kind.CRAFT || job.kind == ColonyJob.Kind.RESEARCH) && (job.station == null || job.requested > 64 || job.recipe.isBlank())) throw new IllegalArgumentException("data");
                 if (manager.jobs.put(job.id, job) != null) throw new IllegalArgumentException("data");
             }

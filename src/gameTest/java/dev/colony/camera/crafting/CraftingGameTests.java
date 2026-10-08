@@ -54,6 +54,54 @@ import java.util.LinkedHashMap;
 public final class CraftingGameTests {
     private record Scene(FakePlayer player, WorkerEntity worker, ReservationLedger ledger) {}
     private record Facility(String id, Item output, int count, Item unlock, Item[] grid) {}
+    @GameTest(template = "construction", timeoutTicks = 500, batch = "worker_quality")
+    public static void artisanCraftsRealDurableToolWithoutDuplicatingMaterials(GameTestHelper helper) {
+        Scene scene = scene(helper); scene.worker.state().profession(dev.colony.camera.worker.WorkerProfile.Profession.ARTISAN, false);
+        machine(helper, scene, 5, 1, 5, ColonyContent.COLONY_WORKBENCH.get());
+        MachineBlockEntity box = machine(helper, scene, 5, 1, 3, ColonyContent.WAREHOUSE.get());
+        box.inventory.setStackInSlot(0, new ItemStack(Objects.requireNonNull(Items.OAK_PLANKS), 3));
+        box.inventory.setStackInSlot(1, new ItemStack(Objects.requireNonNull(Items.STICK), 2));
+        ColonyWorkManager manager = ColonyWorkManager.get(Objects.requireNonNull(helper.getLevel()));
+        manager.craft(Objects.requireNonNull(scene.player), Objects.requireNonNull(helper.absolutePos(new BlockPos(5, 1, 5))), "minecraft:wooden_pickaxe", 1);
+        ColonyJob job = Objects.requireNonNull(manager.jobs(Objects.requireNonNull(scene.player.getUUID())).get(0));
+        helper.succeedWhen(() -> {
+            helper.assertTrue(job.finished(), "Artisan crafting stalled: " + job.reason);
+            int outputCount = 0;
+            for (int slot = 0; slot < box.inventory.getSlots(); slot++) {
+                ItemStack item = box.inventory.getStackInSlot(slot); if (item.isEmpty()) continue;
+                helper.assertTrue(item.is(Objects.requireNonNull(Items.WOODEN_PICKAXE))
+                        && item.getEnchantmentLevel(Objects.requireNonNull(net.minecraft.world.item.enchantment.Enchantments.UNBREAKING)) >= 1,
+                        "Quality was cosmetic or material consumption was not atomic");
+                outputCount += item.getCount();
+            }
+            helper.assertTrue(outputCount == 1 && scene.worker.state().credit(dev.colony.camera.worker.WorkerAttribute.PRECISION).signum() > 0
+                    && scene.worker.state().credit(dev.colony.camera.worker.WorkerAttribute.OPERATION).signum() > 0, "Quality changed quantities or failed corresponding growth"); scene.worker.discard();
+        });
+    }
+    @GameTest(template = "construction", timeoutTicks = 600, batch = "worker_rotation")
+    public static void strikeAndReloadPreserveActualStationWork(GameTestHelper helper) {
+        Scene scene = scene(helper); machine(helper, scene, 5, 1, 5, ColonyContent.COLONY_WORKBENCH.get());
+        MachineBlockEntity box = machine(helper, scene, 5, 1, 3, ColonyContent.WAREHOUSE.get());
+        box.inventory.setStackInSlot(0, new ItemStack(Objects.requireNonNull(Items.OAK_PLANKS), 3)); box.inventory.setStackInSlot(1, new ItemStack(Objects.requireNonNull(Items.STICK), 2));
+        ColonyWorkManager manager = ColonyWorkManager.get(Objects.requireNonNull(helper.getLevel()));
+        manager.craft(Objects.requireNonNull(scene.player), Objects.requireNonNull(helper.absolutePos(new BlockPos(5, 1, 5))), "minecraft:wooden_pickaxe", 1);
+        ColonyJob craft = Objects.requireNonNull(manager.jobs(Objects.requireNonNull(scene.player.getUUID())).get(0)); double[] partial = {-1};
+        helper.onEachTick(() -> {
+            if (partial[0] < 0 && craft.workProgress >= 10 && !craft.finished()) {
+                partial[0] = craft.workProgress; scene.worker.state().addPressure(dev.colony.camera.worker.WorkerProfile.StressCause.OVERWORK, 110);
+                scene.worker.state().mood(1, 0);
+                CompoundTag saved = manager.save(new CompoundTag()); ColonyWorkManager restored = ColonyWorkManager.load(saved);
+                helper.assertTrue(restored.jobs(Objects.requireNonNull(scene.player.getUUID())).get(0).workProgress == partial[0], "Station work was reset by reload");
+                helper.runAfterDelay(40, () -> {
+                    helper.assertTrue(craft.workProgress == partial[0] && !craft.finished() && scene.worker.state().striking(), "Strike advanced or discarded completed station work");
+                    scene.worker.state().recover(200);
+                });
+            }
+        });
+        helper.succeedWhen(() -> helper.assertTrue(partial[0] > 0 && craft.finished()
+                && StorageAccess.at(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(box.getBlockPos()), Objects.requireNonNull(scene.player.getUUID())).count(new ItemStack(Objects.requireNonNull(Items.WOODEN_PICKAXE))) == 1,
+                "Recovered worker failed to resume the real crafting transaction"));
+    }
 
     @GameTest(template = "construction", timeoutTicks = 20)
     public static void survivalWorkbenchUnlocksAndConsumesEveryFacilityRecipe(GameTestHelper helper) {
@@ -102,8 +150,10 @@ public final class CraftingGameTests {
     @GameTest(template = "construction", timeoutTicks = 20)
     public static void colonyCatalogIncludesAllFacilitiesWithoutResearchCycle(GameTestHelper helper) {
         Scene scene = scene(helper); var catalog = CraftingService.catalog(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(scene.player.getUUID()));
-        helper.assertTrue(catalog.size() == 22 && TechProgress.get(Objects.requireNonNull(helper.getLevel())).tier(Objects.requireNonNull(scene.player.getUUID())) == 0,
-                "Facility and tool catalog has the wrong size or requires prior research");
+        helper.assertTrue(catalog.size() > 25 && TechProgress.get(Objects.requireNonNull(helper.getLevel())).tier(Objects.requireNonNull(scene.player.getUUID())) == 0,
+                "Recipe catalog remained a fixed whitelist or requires prior research");
+        for (String id : List.of("minecraft:oak_planks", "minecraft:bread", "minecraft:chest"))
+            helper.assertTrue(catalog.asList().stream().anyMatch(entry -> entry.getAsJsonObject().get("id").getAsString().equals(id)), "Native recipe omitted: " + id);
         for (Facility facility : facilities()) {
             String id = ColonyCamera.ID + ":" + facility.id; int found = 0;
             for (var value : catalog) {
@@ -118,7 +168,7 @@ public final class CraftingGameTests {
                 "Adding facilities bypassed existing tool technology"); helper.succeed();
     }
 
-    @GameTest(template = "construction", timeoutTicks = 850)
+    @GameTest(template = "construction", timeoutTicks = 1100)
     public static void workerProducesEveryFacilityUsingExactRealStock(GameTestHelper helper) {
         Scene scene = scene(helper); machine(helper, scene, 5, 1, 5, ColonyContent.COLONY_WORKBENCH.get());
         MachineBlockEntity box = machine(helper, scene, 5, 1, 3, ColonyContent.WAREHOUSE.get());
@@ -152,7 +202,7 @@ public final class CraftingGameTests {
                 scene.ledger.release(scene.worker.getUUID()); tasks[0] = null; jobs[0] = null; next[0]++;
             }
         });
-        helper.succeedWhen(() -> helper.assertTrue(next[0] == recipes.size(), "Worker did not complete all nine facility recipes"));
+        helper.succeedWhen(() -> helper.assertTrue(next[0] == recipes.size(), "Worker did not complete all twelve facility recipes"));
     }
 
     @GameTest(template = "construction", timeoutTicks = 20)
@@ -180,6 +230,12 @@ public final class CraftingGameTests {
                         new Item[]{iron, iron, iron, air, table, air, oak, birch, crimson}),
                 new Facility("research_desk", ColonyContent.RESEARCH_DESK.get().asItem(), 1, table,
                         new Item[]{air, Items.BOOK, air, iron, table, iron, oak, birch, crimson}),
+                new Facility("residence", ColonyContent.RESIDENCE.get().asItem(), 1, Items.OAK_DOOR,
+                        new Item[]{air, Items.WHITE_WOOL, air, oak, Items.OAK_DOOR, birch, oak, birch, crimson}),
+                new Facility("academy", ColonyContent.ACADEMY.get().asItem(), 1, table,
+                        new Item[]{Items.BOOK, Items.BOOK, Items.BOOK, oak, table, birch, oak, birch, crimson}),
+                new Facility("academy_upgrade", ColonyContent.ACADEMY_UPGRADE.get(), 1, redstone,
+                        new Item[]{Items.GOLD_INGOT, Items.BOOK, Items.GOLD_INGOT, Items.BOOK, redstone, Items.BOOK, Items.GOLD_INGOT, Items.BOOK, Items.GOLD_INGOT}),
                 new Facility("capacity_upgrade", ColonyContent.CAPACITY_UPGRADE.get(), 1, iron,
                         new Item[]{iron, iron, iron, iron, Items.PAPER, iron, iron, iron, iron}),
                 new Facility("stack_upgrade", ColonyContent.STACK_UPGRADE.get(), 1, redstone,

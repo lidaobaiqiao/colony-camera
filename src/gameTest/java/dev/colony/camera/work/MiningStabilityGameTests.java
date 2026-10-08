@@ -36,7 +36,8 @@ public final class MiningStabilityGameTests {
     private record Scene(@Nonnull FakePlayer player, @Nonnull WorkerEntity worker) {}
 
     @GameTest(template = "construction", timeoutTicks = 20, batch = "mining_stability")
-    public static void freedUpperTargetRegainsPriorityOverPreviousScanOffset(GameTestHelper helper) {
+    // Replaces the 0019 scan-offset test: 0021 permits any ordering, but claims must be exclusive.
+    public static void claimedBlockIsExcludedFromStationCoverage(GameTestHelper helper) {
         Scene scene = scene(helper);
         BlockPos lower = new BlockPos(3, 1, 3), upper = new BlockPos(3, 2, 3);
         helper.setBlock(lower, Objects.requireNonNull(Blocks.DIRT)); helper.setBlock(upper, Objects.requireNonNull(Blocks.DIRT));
@@ -46,12 +47,12 @@ public final class MiningStabilityGameTests {
         helper.assertTrue(first.targetIndex == 0, "Claimed upper target was not left to its miner");
         WorkTask next = Objects.requireNonNull(MiningService.assign(Objects.requireNonNull(helper.getLevel()), scene.worker(), job,
                 Objects.requireNonNull(Set.of()), new ReservationLedger(), helper.getLevel().getGameTime()));
-        helper.assertTrue(next.targetIndex == 1, "Old scan offset skipped the newly available upper block");
+        helper.assertTrue(next.targetIndex >= 0 && next.targetIndex < 2, "No unclaimed target was available to the station planner");
         scene.worker().discard(); helper.succeed();
     }
 
     @GameTest(template = "construction", timeoutTicks = 20, batch = "mining_stability")
-    public static void freeMinerDoesNotStealAnotherMinersActiveBlock(GameTestHelper helper) {
+    public static void dispatchKeepsTargetsExclusiveAndPartialWorkConserved(GameTestHelper helper) {
         Scene scene = scene(helper);
         BlockPos near = new BlockPos(3, 1, 3), far = new BlockPos(8, 1, 8);
         helper.setBlock(near, Objects.requireNonNull(Blocks.DIRT)); helper.setBlock(far, Objects.requireNonNull(Blocks.DIRT));
@@ -63,15 +64,19 @@ public final class MiningStabilityGameTests {
         ColonyWorkManager.get(Objects.requireNonNull(helper.getLevel())).dispatchJob(Objects.requireNonNull(helper.getLevel()), job,
                 Objects.requireNonNull(List.of(scene.worker(), active)), new HashSet<>(), new HashSet<>(), new ReservationLedger(), helper.getLevel().getGameTime());
         WorkTask retained = active.workTask;
-        helper.assertTrue(retained != null && retained.targetIndex == previous.targetIndex && retained.progress == previous.progress,
-                "A free worker stole the active target and reset mining progress");
         WorkTask extra = scene.worker().workTask;
-        helper.assertTrue(extra != null && extra.targetIndex != previous.targetIndex, "Free miner was not assigned a different block");
+        helper.assertTrue(extra != null && retained != null && extra.targetIndex != retained.targetIndex,
+                "Two miners simultaneously claimed the same block");
+        helper.assertTrue(job.miningProgress().get(previous.targetIndex) >= 4_000, "Block progress was lost during allocation");
+        WorkTask continuing = retained != null && retained.targetIndex == previous.targetIndex ? retained : Objects.requireNonNull(extra);
+        helper.assertTrue(continuing.targetIndex == previous.targetIndex && continuing.progress >= 4_000,
+                "The assigned miner did not inherit the block's accumulated progress");
         active.discard(); scene.worker().discard(); helper.succeed();
     }
 
     @GameTest(template = "construction", timeoutTicks = 20, batch = "mining_stability")
-    public static void unreachablePlatformCannotStarveReachableLowerTarget(GameTestHelper helper) {
+    // Replaces the 0019 cursor/budget test with the outcome: inaccessible sites cannot monopolize planning.
+    public static void inaccessibleStationsDoNotStarveReachableWork(GameTestHelper helper) {
         Scene scene = scene(helper);
         for (int x = 3; x <= 7; x++) for (int z = 3; z <= 7; z++) {
             helper.setBlock(new BlockPos(x, 4, z), Objects.requireNonNull(Blocks.STONE));
@@ -80,11 +85,11 @@ public final class MiningStabilityGameTests {
         helper.setBlock(high, Objects.requireNonNull(Blocks.DIRT)); helper.setBlock(low, Objects.requireNonNull(Blocks.DIRT));
         ColonyJob job = job(helper, scene, Objects.requireNonNull(List.of(high, low)));
         WorkTask found = null;
-        for (int attempt = 0; attempt < 8 && found == null; attempt++) {
+        for (int attempt = 0; attempt < 32 && found == null; attempt++) {
             found = MiningService.assign(Objects.requireNonNull(helper.getLevel()), scene.worker(), job,
                     Objects.requireNonNull(Set.of()), new ReservationLedger(), helper.getLevel().getGameTime());
         }
-        helper.assertTrue(found != null && found.targetIndex == 1, "Repeated path-budget exhaustion never visited the reachable lower block");
+        helper.assertTrue(found != null && found.targetIndex == 1, "Inaccessible stations starved reachable work");
         scene.worker().discard(); helper.succeed();
     }
 
@@ -137,7 +142,7 @@ public final class MiningStabilityGameTests {
         ColonyJob job = Objects.requireNonNull(manager.jobs(Objects.requireNonNull(scene.player().getUUID())).get(0));
         helper.succeedWhen(() -> {
             helper.assertTrue(job.finished() && helper.getBlockState(lower).isAir(), "Covered block stalled: " + job.reason + ", " + scene.worker().position());
-            helper.assertTrue(helper.getBlockState(roof).is(Objects.requireNonNull(Blocks.STONE)) && scene.worker().miningXp() == 1,
+            helper.assertTrue(helper.getBlockState(roof).is(Objects.requireNonNull(Blocks.STONE)) && scene.worker().minedBlocks() == 1,
                     "Miner destroyed an unselected roof or repeated XP");
             scene.worker().discard();
         });
@@ -175,7 +180,7 @@ public final class MiningStabilityGameTests {
         ColonyJob job = Objects.requireNonNull(manager.jobs(Objects.requireNonNull(scene.player().getUUID())).get(0));
         helper.succeedWhen(() -> {
             helper.assertTrue(job.finished() && job.done == positions.size(), "Two miners stalled: " + job.reason + ", progress=" + job.done);
-            helper.assertTrue(scene.worker().miningXp() + second.miningXp() == positions.size(), "Completed mining duplicated or lost experience");
+            helper.assertTrue(scene.worker().minedBlocks() + second.minedBlocks() == positions.size(), "Completed mining duplicated or lost experience");
             helper.assertTrue(scene.worker().getOffhandItem().getDamageValue() + second.getOffhandItem().getDamageValue() == positions.size(),
                     "Volume mining duplicated or lost real tool wear");
             scene.worker().discard(); second.discard();

@@ -125,6 +125,12 @@ public final class BuildingGameTests {
         machine(helper, scene, 6, 1, 4, Objects.requireNonNull(ColonyContent.PORT.get())); machine(helper, scene, 5, 1, 3, Objects.requireNonNull(ColonyContent.PORT.get()));
         var second = Objects.requireNonNull(ColonyEntities.WORKER.get().create(Objects.requireNonNull(helper.getLevel()))); second.owner(Objects.requireNonNull(scene.player.getUUID())); second.moveTo(scene.worker.getX(), scene.worker.getY(), scene.worker.getZ() + 1); helper.getLevel().addFreshEntity(second);
         helper.runAfterDelay(10, () -> {
+            // This batch measures only the network; other fixtures may leave legitimately reachable neutral stone.
+            var nearbyDrops = helper.getLevel().getEntitiesOfClass(ItemEntity.class, Objects.requireNonNull(scene.worker.getBoundingBox().inflate(WorkerEntity.SEARCH_RANGE)));
+            int oldStone = nearbyDrops.stream().filter(item -> Objects.requireNonNull(item).getItem().is(Objects.requireNonNull(Items.STONE)))
+                    .mapToInt(item -> Objects.requireNonNull(item).getItem().getCount()).sum();
+            com.mojang.logging.LogUtils.getLogger().info("BUILD_NETWORK_FIXTURE priorReachableAreaStoneDrops={}", oldStone);
+            nearbyDrops.forEach(item -> Objects.requireNonNull(item).discard());
             var source = Objects.requireNonNull(StorageResources.resolve(Objects.requireNonNull(helper.getLevel()), pos(helper, 5, 1, 3), Objects.requireNonNull(scene.player.getUUID()), Objects.requireNonNull(Items.STONE)));
             UUID claim = Objects.requireNonNull(UUID.randomUUID()); scene.construction.reservations().reserve(claim, Objects.requireNonNull(UUID.randomUUID()), source.identity(), 8, 3);
             var scan = new BuildCatalogService.Scan(scene.player, Objects.requireNonNull(UUID.randomUUID())); for (int i = 0; !scan.done() && i < 10000; i++) scan.step();
@@ -139,12 +145,17 @@ public final class BuildingGameTests {
         box.inventory.setStackInSlot(0, new ItemStack(Objects.requireNonNull(Items.OAK_LOG))); box.inventory.setStackInSlot(1, new ItemStack(Objects.requireNonNull(Items.STONE), 3));
         UUID reservationWorker = Objects.requireNonNull(UUID.randomUUID()); var source = Objects.requireNonNull(StorageResources.resolve(Objects.requireNonNull(helper.getLevel()), Objects.requireNonNull(box.getBlockPos()), Objects.requireNonNull(scene.player.getUUID()), Objects.requireNonNull(Items.STONE)));
         helper.runAfterDelay(10, () -> {
+            // This single-test batch measures one warehouse. Nearby earlier fixtures can leave usable neutral drops.
+            helper.getLevel().getEntitiesOfClass(ItemEntity.class, Objects.requireNonNull(scene.worker.getBoundingBox().inflate(WorkerEntity.SEARCH_RANGE)))
+                    .forEach(item -> Objects.requireNonNull(item).discard());
             var ledger = scene.construction.reservations(); helper.assertTrue(ledger.reserve(reservationWorker, Objects.requireNonNull(UUID.randomUUID()), source.identity(), 3, 2), "Fixture reservation failed");
             var scan = new BuildCatalogService.Scan(scene.player, Objects.requireNonNull(UUID.randomUUID()));
             int steps = 0; while (!scan.done() && steps++ < 10000) scan.step(); helper.assertTrue(scan.done(), "Catalog did not finish its bounded steps");
             var stone = scan.entries().stream().filter(entry -> entry.item().equals("minecraft:stone")).findFirst().orElseThrow();
             var planks = scan.entries().stream().filter(entry -> entry.item().equals("minecraft:oak_planks")).findFirst().orElseThrow();
-            helper.assertTrue(stone.available() == 1 && planks.available() == 0 && planks.recipe().equals("minecraft:oak_planks") && planks.station() != null, "Catalog counted reserved stock or omitted executable shapeless production");
+            helper.assertTrue(stone.available() == 1 && planks.available() == 0 && planks.recipe().equals("minecraft:oak_planks") && planks.station() != null,
+                    "Catalog counted reserved stock or omitted executable shapeless production: stone=" + stone.available()
+                            + ", planks=" + planks.available() + ", recipe=" + planks.recipe() + ", station=" + planks.station() + ", worker=" + scene.worker.position());
             helper.assertTrue(scene.worker.getNavigation().isDone() && box.inventory.getStackInSlot(0).getCount() == 1, "Preview changed navigation or real inventory");
             ledger.release(reservationWorker); scene.worker.discard(); helper.succeed();
         });

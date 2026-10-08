@@ -135,7 +135,7 @@ public final class WorkerWaterGameTests {
                     + "/" + worker.getMoveControl().getWantedZ());
             helper.assertTrue(waded[0] && worker.getX() < helper.absolutePos(new BlockPos(6, 1, 5)).getX(),
                     "Worker bypassed the flowing-water route: waded=" + waded[0] + ", pos=" + worker.position());
-            helper.assertTrue(worker.miningXp() == 2 && worker.getOffhandItem().getDamageValue() == 2,
+            helper.assertTrue(worker.minedBlocks() == 2 && worker.getOffhandItem().getDamageValue() == 2,
                     "Flooded mining lost XP or durability callbacks");
             AABB bounds = new AABB(Objects.requireNonNull(helper.absolutePos(new BlockPos(0, -2, 0))),
                     Objects.requireNonNull(helper.absolutePos(new BlockPos(12, 6, 12))));
@@ -171,9 +171,9 @@ public final class WorkerWaterGameTests {
         WorkerEntity worker = worker(helper, owner);
         worker.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Objects.requireNonNull(Items.DIRT), 7));
         worker.setItemSlot(EquipmentSlot.OFFHAND, new ItemStack(Objects.requireNonNull(Items.WOODEN_PICKAXE)));
-        worker.gainMiningExperience(18);
+
         Objects.requireNonNull(worker.getAttribute(Objects.requireNonNull(ForgeMod.SWIM_SPEED.get()))).setBaseValue(1);
-        CompoundTag saved = new CompoundTag(); worker.addAdditionalSaveData(saved);
+        CompoundTag saved = new CompoundTag(); worker.addAdditionalSaveData(saved); saved.remove("ColonyState"); saved.putInt("ColonyMiningXp", 18);
         var attributes = saved.getList("Attributes", Tag.TAG_COMPOUND);
         boolean changed = false;
         for (int i = 0; i < attributes.size(); i++) {
@@ -184,7 +184,7 @@ public final class WorkerWaterGameTests {
         worker.readAdditionalSaveData(saved);
         helper.assertTrue(worker.getAttributeValue(Objects.requireNonNull(ForgeMod.SWIM_SPEED.get())) == 5
                 && worker.getAttributeValue(Objects.requireNonNull(Attributes.MOVEMENT_SPEED)) == 0.3, "Saved bases defeated the water fix");
-        helper.assertTrue(owner.equals(worker.owner()) && worker.miningXp() == 18 && worker.getMainHandItem().getCount() == 7
+        helper.assertTrue(owner.equals(worker.owner()) && worker.minedBlocks() == 18 && worker.getMainHandItem().getCount() == 7
                 && worker.getOffhandItem().is(Objects.requireNonNull(Items.WOODEN_PICKAXE)), "Migration lost owner, cargo, tool or skill");
         worker.discard(); helper.succeed();
     }

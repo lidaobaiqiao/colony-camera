@@ -7,8 +7,6 @@ import javax.annotation.Nullable;
 import javax.annotation.ParametersAreNonnullByDefault;
 import java.util.BitSet;
 import java.util.List;
-import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -23,6 +21,12 @@ public final class ColonyJob {
     public int priority;
     public final long sequence;
     @Nonnull public List<BlockPos> targets = java.util.Objects.requireNonNull(List.of());
+    public boolean surfaceSweep;
+    @Nonnull public List<String> itemTypes = Objects.requireNonNull(List.of());
+    @Nonnull public List<UUID> sweepDrops = Objects.requireNonNull(List.of());
+    @Nonnull final java.util.Map<UUID, ItemSweepService.Probes> sweepProbes = new java.util.HashMap<>();
+    public boolean itemSweep() { return !itemTypes.isEmpty(); }
+    @Nullable private java.util.Set<BlockPos> surfaceTargets;
     @Nonnull public List<String> expectedStates = java.util.Objects.requireNonNull(List.of());
     @Nullable public BlockPos station;
     @Nullable public UUID parentProject;
@@ -30,8 +34,9 @@ public final class ColonyJob {
     public int requested = 1;
     @Nonnull public final BitSet completed = new BitSet();
     public int done;
-    /** A bounded search resumes by original target index, independently for each worker. */
-    @Nonnull public final Map<UUID, Integer> miningCursors = new LinkedHashMap<>();
+    public double workProgress;
+    @Nullable MiningPlan miningPlan;
+    @Nullable private MiningProgress miningProgress;
     @Nonnull public String reason = "queued";
     public boolean paused;
     public boolean cancelled;
@@ -42,6 +47,16 @@ public final class ColonyJob {
         this.priority = new ProjectOrder(id, priority, sequence).priority(); this.sequence = sequence;
     }
     @Nonnull public ProjectOrder order() { return new ProjectOrder(id, priority, sequence); }
+    public boolean sweepsSurface(BlockPos pos) {
+        java.util.Set<BlockPos> lookup = surfaceTargets;
+        if (lookup == null) surfaceTargets = lookup = new java.util.HashSet<>(targets);
+        return lookup.contains(pos);
+    }
+    @Nonnull public MiningProgress miningProgress() {
+        MiningProgress progress = miningProgress;
+        if (progress == null || progress.size() != targets.size()) miningProgress = progress = new MiningProgress(targets.size());
+        return progress;
+    }
     public int total() { return kind == Kind.MINE ? targets.size() : Math.max(1, requested); }
     public boolean finished() { return kind == Kind.SWEEP ? completed.get(0) : kind == Kind.MINE ? completed.cardinality() >= targets.size() : done >= requested; }
     public boolean runnable() { return !paused && !cancelled && !finished(); }

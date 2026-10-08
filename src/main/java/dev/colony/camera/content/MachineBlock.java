@@ -45,7 +45,7 @@ public final class MachineBlock extends BaseEntityBlock {
         if (entity instanceof Player player && level.getBlockEntity(pos) instanceof MachineBlockEntity machine) machine.owner(Objects.requireNonNull(player.getUUID()));
     }
     @Override public InteractionResult use(BlockState state, Level level, BlockPos pos, Player player, InteractionHand hand, BlockHitResult hit) {
-        if (player.getItemInHand(hand).getItem() instanceof WarehouseUpgradeItem) return InteractionResult.PASS;
+        if (player.getItemInHand(hand).getItem() instanceof WarehouseUpgradeItem || player.getItemInHand(hand).getItem() instanceof AcademyUpgradeItem) return InteractionResult.PASS;
         if (level.isClientSide) return InteractionResult.SUCCESS;
         if (!(player instanceof ServerPlayer server) || !(level.getBlockEntity(pos) instanceof MachineBlockEntity machine)) return InteractionResult.FAIL;
         if (!machine.claim(server)) { server.displayClientMessage(Objects.requireNonNull(Component.translatable("colonycamera.machine.denied")), true); return InteractionResult.CONSUME; }
@@ -54,6 +54,10 @@ public final class MachineBlock extends BaseEntityBlock {
             server.displayClientMessage(Objects.requireNonNull(Component.translatable("colonycamera.print." + result)), true);
         } else if (kind == ColonyContent.Kind.COLONY_WORKBENCH || kind == ColonyContent.Kind.RESEARCH_DESK) {
             dev.colony.camera.work.WorkNetwork.openStation(server, pos, kind == ColonyContent.Kind.RESEARCH_DESK);
+        } else if (kind == ColonyContent.Kind.RESIDENCE) {
+            dev.colony.camera.work.WorkNetwork.openResidence(server, pos);
+        } else if (kind == ColonyContent.Kind.ACADEMY) {
+            dev.colony.camera.work.WorkNetwork.openPeople(server);
         } else if (kind != ColonyContent.Kind.NETWORK_CABLE) NetworkHooks.openScreen(server, machine, pos);
         return InteractionResult.CONSUME;
     }
@@ -71,7 +75,7 @@ public final class MachineBlock extends BaseEntityBlock {
     @SuppressWarnings("deprecation")
     @Override public java.util.List<ItemStack> getDrops(BlockState state, net.minecraft.world.level.storage.loot.LootParams.Builder context) {
         var entity = context.getOptionalParameter(Objects.requireNonNull(net.minecraft.world.level.storage.loot.parameters.LootContextParams.BLOCK_ENTITY));
-        if (entity instanceof MachineBlockEntity machine && kind == ColonyContent.Kind.WAREHOUSE && machine.inventory.readOnly()) {
+        if (entity instanceof MachineBlockEntity machine && (kind == ColonyContent.Kind.WAREHOUSE && machine.inventory.readOnly() || machine.facilityReadOnly())) {
             ItemStack preserved = new ItemStack(this); preserved.getOrCreateTag().put("BlockEntityTag", Objects.requireNonNull(machine.saveWithoutMetadata())); return java.util.List.of(preserved);
         }
         return super.getDrops(state, context);

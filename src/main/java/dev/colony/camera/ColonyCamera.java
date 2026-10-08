@@ -14,6 +14,8 @@ public final class ColonyCamera {
     public ColonyCamera() {
         net.minecraftforge.fml.ModLoadingContext.get().registerConfig(net.minecraftforge.fml.config.ModConfig.Type.CLIENT,
                 dev.colony.camera.config.SelectionConfig.SPEC);
+        net.minecraftforge.fml.ModLoadingContext.get().registerConfig(net.minecraftforge.fml.config.ModConfig.Type.SERVER,
+                dev.colony.camera.config.WorkerConfig.SPEC);
         ColonyEntities.TYPES.register(FMLJavaModLoadingContext.get().getModEventBus());
         ColonyContent.register(java.util.Objects.requireNonNull(FMLJavaModLoadingContext.get().getModEventBus()));
         ConstructionNetwork.register();

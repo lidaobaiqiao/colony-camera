@@ -67,6 +67,9 @@ public final class CraftingService {
                 new Definition("colonycamera:warehouse", () -> Objects.requireNonNull(ColonyContent.WAREHOUSE.get().asItem()), 0),
                 new Definition("colonycamera:colony_workbench", () -> Objects.requireNonNull(ColonyContent.COLONY_WORKBENCH.get().asItem()), 0),
                 new Definition("colonycamera:research_desk", () -> Objects.requireNonNull(ColonyContent.RESEARCH_DESK.get().asItem()), 0),
+                new Definition("colonycamera:residence", () -> Objects.requireNonNull(ColonyContent.RESIDENCE.get().asItem()), 0),
+                new Definition("colonycamera:academy", () -> Objects.requireNonNull(ColonyContent.ACADEMY.get().asItem()), 0),
+                new Definition("colonycamera:academy_upgrade", () -> Objects.requireNonNull(ColonyContent.ACADEMY_UPGRADE.get()), 0),
                 new Definition("colonycamera:capacity_upgrade", () -> Objects.requireNonNull(ColonyContent.CAPACITY_UPGRADE.get().asItem()), 0),
                 new Definition("colonycamera:stack_upgrade", () -> Objects.requireNonNull(ColonyContent.STACK_UPGRADE.get().asItem()), 0),
                 new Definition("colonycamera:network_controller", () -> Objects.requireNonNull(ColonyContent.CONTROLLER.get().asItem()), 0),
@@ -96,11 +99,14 @@ public final class CraftingService {
         return crafting instanceof ShapelessRecipe ? crafting : null;
     }
     @Nullable private static Definition definition(ServerLevel level, String id) {
-        Definition known = definition(id); if (known != null) return known;
         CraftingRecipe recipe = recipe(level, id); if (recipe == null) return null;
         ItemStack result = recipe.getResultItem(Objects.requireNonNull(level.registryAccess()));
-        if (result.isEmpty() || result.hasTag() || !(result.getItem() instanceof BlockItem)) return null;
-        Item item = Objects.requireNonNull(result.getItem()); return new Definition(id, () -> item, 0);
+        if (result.isEmpty()) return null;
+        Item item = Objects.requireNonNull(result.getItem());
+        // The recipe ID is not an item ID: datapacks may provide several recipes for one output.
+        // Determine research requirements from the real output, so alternate tool recipes cannot bypass it.
+        Definition known = DEFINITIONS.stream().filter(value -> value.output().get() == item).findFirst().orElse(null);
+        return new Definition(id, () -> item, known == null ? 0 : known.tier());
     }
     @Nonnull public static List<String> blockRecipes(ServerLevel level) {
         return Objects.requireNonNull(level.getRecipeManager().getAllRecipesFor(Objects.requireNonNull(RecipeType.CRAFTING)).stream()
@@ -123,14 +129,16 @@ public final class CraftingService {
             if (dx * dx + dy * dy + dz * dz > 9) continue; BlockPos pos = Objects.requireNonNull(station.offset(dx, dy, dz));
             if (!GroundResources.loaded(level, pos) || !(level.getBlockEntity(pos) instanceof MachineBlockEntity machine)
                     || !machine.permits(owner) || machine.kind() != ColonyContent.Kind.WAREHOUSE && machine.kind() != ColonyContent.Kind.NETWORK_PORT) continue;
-            for (var entry : StorageAccess.at(level, pos, owner).entries()) if (!entry.item().hasTag()) result.add(entry.item().getItem());
+            for (var entry : StorageAccess.at(level, pos, owner).entries()) result.add(entry.item().getItem());
         }
         return Objects.requireNonNull(result);
     }
 
     @Nonnull public static JsonArray catalog(ServerLevel level, UUID owner) {
         TechProgress technology = TechProgress.get(level); int tier = technology.tier(owner); JsonArray result = new JsonArray();
-        for (Definition definition : DEFINITIONS) {
+        for (CraftingRecipe nativeRecipe : level.getRecipeManager().getAllRecipesFor(Objects.requireNonNull(RecipeType.CRAFTING))) {
+            Definition definition = definition(level, Objects.requireNonNull(nativeRecipe.getId().toString()));
+            if (definition == null) continue;
             CraftingRecipe recipe = recipe(level, definition.id()); if (recipe == null) continue;
             ItemStack output = Objects.requireNonNull(recipe.getResultItem(Objects.requireNonNull(level.registryAccess())));
             if (!validOutput(output, definition)) continue;
@@ -170,6 +178,62 @@ public final class CraftingService {
                 && validOutput(Objects.requireNonNull(recipe.getResultItem(Objects.requireNonNull(level.registryAccess()))), definition);
     }
 
+    private record PreviewContext(@Nonnull WorkerEntity worker, @Nonnull Bank stock) {}
+
+    /** A visible recipe-book page uses a bounded, read-only simulation of the exact production transaction. */
+    @Nonnull public static JsonObject previewPage(net.minecraft.server.level.ServerPlayer player, BlockPos station,
+            List<String> ids, int count, int request) {
+        if (ids.size() > 24 || count < 1 || count > 64) throw new IllegalArgumentException("limit");
+        ServerLevel level = Objects.requireNonNull(player.serverLevel()); UUID owner = Objects.requireNonNull(player.getUUID());
+        String blocked = null;
+        try { dev.colony.camera.work.ColonyWorkManager.station(player, station, false); }
+        catch (IllegalArgumentException invalidStation) { blocked = "station"; }
+        if (dev.colony.camera.work.ColonyWorkManager.get(level).readOnly()
+                || dev.colony.camera.construction.ConstructionManager.get(level).readOnly()) blocked = "data";
+        else if (TechProgress.get(level).readOnly()) blocked = "tech_data";
+        else if (player.isSpectator() || !player.getAbilities().mayBuild) blocked = "denied";
+        ReservationLedger ledger = dev.colony.camera.construction.ConstructionManager.get(level).ledger();
+        var contexts = new ArrayList<PreviewContext>(); int paths = 0;
+        if (blocked == null) for (WorkerEntity worker : dev.colony.camera.construction.ConstructionManager.get(level).workers(level)) {
+            if (!owner.equals(worker.owner()) || worker.stateReadOnly()) continue;
+            ColonyJob intent = new ColonyJob(Objects.requireNonNull(UUID.randomUUID()), owner, "RecipePreview", ColonyJob.Kind.CRAFT, 5, 0);
+            intent.station = station;
+            if (!station(level, worker, intent, station)) continue;
+            stands: for (int dy : new int[]{0, 1, -1}) for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++) {
+                if (dx == 0 && dz == 0) continue;
+                BlockPos stand = Objects.requireNonNull(station.offset(dx, dy, dz));
+                if (!safeStand(level, stand) || !accessible(level, worker, station, stand)) continue;
+                if (worker.distanceToSqr(GroundResources.bottom(stand)) > 0.01
+                        && (++paths > 16 || GroundResources.path(level, worker, stand) == null)) continue;
+                contexts.add(new PreviewContext(worker, bank(level, worker, intent, station, stand, ledger, null)));
+                if (contexts.size() >= 8) break stands;
+            }
+            if (!contexts.isEmpty() || paths > 16) break;
+        }
+        JsonObject result = new JsonObject(); result.addProperty("request", request); result.addProperty("station", station.asLong()); result.addProperty("count", count);
+        JsonArray states = new JsonArray();
+        for (String id : ids) {
+            String reason = contexts.isEmpty() ? "no_worker" : "unreachable";
+            if (blocked != null) reason = blocked;
+            else if (definition(level, Objects.requireNonNull(id)) == null) reason = "recipe";
+            else if (!allowed(level, owner, id)) reason = "technology";
+            else for (PreviewContext context : contexts) {
+                ColonyJob intent = new ColonyJob(Objects.requireNonNull(UUID.randomUUID()), owner, "RecipePreview", ColonyJob.Kind.CRAFT, 5, 0);
+                intent.station = station; intent.recipe = id;
+                Bank simulated = context.stock().fresh();
+                for (int iteration = 0; iteration < count; iteration++) {
+                    String current = prepareBank(level, context.worker(), intent, simulated).reason();
+                    if (!current.equals("ready")) { reason = current; break; }
+                    reason = "ready";
+                    simulated.nextBatch();
+                }
+                if (reason.equals("ready")) break;
+            }
+            JsonObject state = new JsonObject(); state.addProperty("id", id); state.addProperty("reason", reason); states.add(state);
+        }
+        result.add("states", states); return result;
+    }
+
     @Nullable public static WorkTask assign(ServerLevel level, WorkerEntity worker, ColonyJob job, ReservationLedger ledger, long time) {
         BlockPos station = job.station;
         if (station == null || !station(level, worker, job, station)) { job.reason = "station"; return null; }
@@ -192,6 +256,8 @@ public final class CraftingService {
         stands.sort(Comparator.comparingDouble(pos -> worker.distanceToSqr(GroundResources.bottom(Objects.requireNonNull(pos)))));
         job.reason = "unreachable";
         for (BlockPos stand : stands) {
+            // A reachable cell on the far side of a wall is not an operable workstation.
+            if (!accessible(level, worker, station, Objects.requireNonNull(stand))) continue;
             var path = GroundResources.path(level, worker, Objects.requireNonNull(stand));
             // A worker placed this tick may not have a grounded navigation state yet. Keep a
             // bounded, loaded assignment and let the next server tick calculate the path.
@@ -218,9 +284,9 @@ public final class CraftingService {
         if (station == null || !job.runnable() || !station(level, worker, job, station)) { job.reason = "station"; return true; }
         if (time > task.deadline) { job.reason = "unreachable"; return true; }
         if (!safeStand(level, task.stand)) { job.reason = "unreachable"; return true; }
-        if (worker.distanceToSqr(GroundResources.bottom(task.stand)) > 1.1) {
+        if (worker.distanceToSqr(GroundResources.bottom(task.stand)) > 0.01 || !StorageResources.canTake(level, worker, station)) {
             task.progress = 0; job.reason = "walking";
-            if (worker.getNavigation().isDone()) {
+            if (worker.getNavigation().isDone() || !task.stand.equals(worker.getNavigation().getTargetPos())) {
                 var path = GroundResources.path(level, worker, task.stand);
                 if (path == null || !GroundResources.follow(level, worker, path)) {
                     if (!worker.onGround()) { job.reason = "walking"; return false; }
@@ -230,7 +296,6 @@ public final class CraftingService {
             return false;
         }
         worker.getNavigation().stop();
-        if (!StorageResources.canTake(level, worker, station)) { job.reason = "unreachable"; return true; }
         int tier = TechProgress.get(level).tier(job.owner);
         int target = researchTarget(job);
         if (job.kind == ColonyJob.Kind.RESEARCH && tier >= target && target != 0) { job.done = job.requested; job.reason = "finished"; return true; }
@@ -242,7 +307,16 @@ public final class CraftingService {
             Bank current = prepared.bank(); if (current == null) { job.reason = prepared.reason(); return true; }
             if (!current.matches(task.materialClaims)) { job.reason = "reserved"; return true; }
         }
-        task.progress++; job.reason = job.kind == ColonyJob.Kind.RESEARCH ? "researching" : "crafting";
+        double speed = dev.colony.camera.worker.WorkerEffects.manufacturing(worker.state(), time) * dev.colony.camera.worker.WorkerEffects.operation(worker.state());
+        if (job.kind == ColonyJob.Kind.RESEARCH && worker.state().hasAbility(dev.colony.camera.worker.WorkerProfile.Ability.RESEARCH))
+            speed *= dev.colony.camera.worker.WorkerEffects.learning(worker.state());
+        job.workProgress = Math.min(duration, job.workProgress + speed);
+        task.progress = (int) job.workProgress;
+        worker.practice(dev.colony.camera.worker.WorkerAttribute.MANUFACTURING, time, 1);
+        worker.practice(dev.colony.camera.worker.WorkerAttribute.OPERATION, time, 1);
+        if (job.kind == ColonyJob.Kind.CRAFT) worker.practice(dev.colony.camera.worker.WorkerAttribute.PRECISION, time, 1);
+        else worker.practice(dev.colony.camera.worker.WorkerAttribute.LEARNING, time, 1);
+        job.reason = job.kind == ColonyJob.Kind.RESEARCH ? "researching" : "crafting";
         if (task.progress < duration) return false;
         if (prepared == null) prepared = prepare(level, worker, job, task.stand, ledger, task.materialClaims);
         Bank bank = prepared.bank(); if (bank == null) { job.reason = prepared.reason(); return true; }
@@ -255,7 +329,7 @@ public final class CraftingService {
         } catch (RuntimeException failure) {
             LogUtils.getLogger().warn("Colony station transaction rolled back for job {}", job.id, failure); job.reason = "transaction"; return true;
         }
-        job.done++; job.reason = job.finished() ? "finished" : "queued"; return true;
+        job.done++; job.workProgress = 0; job.reason = job.finished() ? "finished" : "queued"; return true;
     }
     private static boolean station(ServerLevel level, WorkerEntity worker, ColonyJob job, BlockPos pos) {
         if (!job.owner.equals(worker.owner()) || !GroundResources.loaded(level, pos)
@@ -279,7 +353,10 @@ public final class CraftingService {
     }
     @Nonnull private static Prepared prepare(ServerLevel level, WorkerEntity worker, ColonyJob job, @Nullable BlockPos stand, ReservationLedger ledger, @Nullable Map<UUID, Integer> claims) {
         BlockPos station = job.station; if (station == null) return new Prepared("station", null);
-        Bank bank = bank(level, worker, job, station, stand, ledger, claims); if (bank.copies.isEmpty()) return new Prepared("storage", null);
+        return prepareBank(level, worker, job, bank(level, worker, job, station, stand, ledger, claims));
+    }
+    @Nonnull private static Prepared prepareBank(ServerLevel level, WorkerEntity worker, ColonyJob job, Bank bank) {
+        if (bank.copies.isEmpty()) return new Prepared("storage", null);
         if (!bank.claimsValid()) return new Prepared("reserved", null);
         int tier = TechProgress.get(level).tier(job.owner);
         if (job.kind == ColonyJob.Kind.RESEARCH) {
@@ -295,6 +372,7 @@ public final class CraftingService {
         if (!bank.fill(recipe, grid, 0, attempts)) return new Prepared("materials", null);
         if (!recipe.matches(grid, level)) return new Prepared("recipe", null);
         ItemStack output = Objects.requireNonNull(recipe.assemble(grid, Objects.requireNonNull(level.registryAccess()))); if (!validOutput(output, definition)) return new Prepared("recipe", null);
+        dev.colony.camera.worker.WorkerEffects.finishCraft(worker.state(), output);
         List<ItemStack> remainders = recipe.getRemainingItems(grid); if (remainders.size() != 9) return new Prepared("recipe", null);
         if (!bank.insert(output)) return new Prepared("full", null);
         for (ItemStack remainder : remainders) if (!remainder.isEmpty() && !bank.insert(Objects.requireNonNull(remainder))) return new Prepared("full", null);
@@ -340,7 +418,7 @@ public final class CraftingService {
     private static final class Bank {
         private final List<InventoryCopy> copies = new ArrayList<>();
         @Nonnull private final ServerLevel level;
-        private final ReservationLedger ledger;
+        @Nonnull private final ReservationLedger ledger;
         @Nullable private final Map<UUID, Integer> claims;
         private final Map<UUID, Integer> stocks = new LinkedHashMap<>();
         private final Map<UUID, Integer> taken = new LinkedHashMap<>();
@@ -351,11 +429,32 @@ public final class CraftingService {
             InventoryCopy copy = new InventoryCopy(holder, live, staged, identity, before); copies.add(copy);
             for (int slot = 0; slot < live.getSlots(); slot++) {
                 ItemStack item = live.getStackInSlot(slot);
-                if (!item.isEmpty() && GroundResources.matches(item, Objects.requireNonNull(item.getItem()))) stocks.merge(source(copy, item), item.getCount(), (a, b) -> Objects.requireNonNull(a) + Objects.requireNonNull(b));
+                if (!item.isEmpty()) stocks.merge(source(copy, item), item.getCount(), (a, b) -> Objects.requireNonNull(a) + Objects.requireNonNull(b));
             }
         }
         @Nonnull UUID source(InventoryCopy copy, ItemStack item) {
-            return Objects.requireNonNull(UUID.nameUUIDFromBytes((level.dimension().location() + "/" + copy.identity().asLong() + "/" + ForgeRegistries.ITEMS.getKey(item.getItem())).getBytes(StandardCharsets.UTF_8)));
+            // Plain stock keeps the same identity as construction. Tagged ingredients have a
+            // separate identity, so their count cannot make reserved plain materials look free.
+            String tag = item.hasTag() ? "/nbt/" + item.getTag() : "";
+            return Objects.requireNonNull(UUID.nameUUIDFromBytes((level.dimension().location() + "/" + copy.identity().asLong() + "/" + ForgeRegistries.ITEMS.getKey(item.getItem()) + tag).getBytes(StandardCharsets.UTF_8)));
+        }
+        @Nonnull Bank fresh() {
+            Bank result = new Bank(level, ledger, null);
+            for (InventoryCopy copy : copies) {
+                WarehouseInventory staged = new WarehouseInventory(() -> {}); staged.load(copy.before());
+                result.copies.add(new InventoryCopy(copy.holder(), copy.live(), staged, copy.identity(), copy.before()));
+            }
+            result.stocks.putAll(stocks); return result;
+        }
+        void nextBatch() {
+            // Preview the next transaction against the previous transaction's
+            // result, including reusable containers and newly produced ingredients.
+            stocks.clear(); taken.clear();
+            for (InventoryCopy copy : copies) for (int slot = 0; slot < copy.staged().getSlots(); slot++) {
+                ItemStack item = copy.staged().getStackInSlot(slot);
+                if (!item.isEmpty()) stocks.merge(source(copy, Objects.requireNonNull(item)), item.getCount(),
+                        (a, b) -> Objects.requireNonNull(a) + Objects.requireNonNull(b));
+            }
         }
         boolean available(UUID source) {
             var activeClaims = this.claims;
@@ -398,14 +497,14 @@ public final class CraftingService {
             return residual.isEmpty();
         }
         boolean fill(CraftingRecipe recipe, RecipeGrid grid, int index, int[] attempts) {
-            if (index >= recipe.getIngredients().size()) return true;
+            if (index >= recipe.getIngredients().size()) return recipe.matches(grid, level);
             if (++attempts[0] > 2048) return false;
             Ingredient ingredient = recipe.getIngredients().get(index);
             int gridSlot = recipe instanceof ShapedRecipe shaped ? index / shaped.getWidth() * 3 + index % shaped.getWidth() : index;
             if (ingredient.isEmpty()) return fill(recipe, grid, index + 1, attempts);
             for (InventoryCopy copy : copies) for (int slot = 0; slot < copy.staged().getSlots(); slot++) {
                 ItemStack candidate = copy.staged().getStackInSlot(slot);
-                if (candidate.isEmpty() || !GroundResources.matches(candidate, Objects.requireNonNull(candidate.getItem())) || !ingredient.test(candidate)) continue;
+                if (candidate.isEmpty() || !ingredient.test(candidate)) continue;
                 UUID source = source(copy, candidate); if (!available(source)) continue;
                 ItemStack before = candidate.copy(); ItemStack consumed = Objects.requireNonNull(copy.staged().extractItem(slot, 1, false)); grid.setItem(gridSlot, consumed);
                 taken.merge(source, 1, (a, b) -> Objects.requireNonNull(a) + Objects.requireNonNull(b));

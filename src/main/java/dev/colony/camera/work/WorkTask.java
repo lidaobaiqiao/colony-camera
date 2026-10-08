@@ -25,6 +25,8 @@ public final class WorkTask {
     @Nullable public ItemStack toolTemplate;
     public boolean toolPickup;
     public int slot = -1;
+    public int actionProgress;
+    public double fractionalProgress;
     @Nonnull public Map<UUID, Integer> materialClaims = new LinkedHashMap<>();
     public WorkTask(UUID job, BlockPos stand, long deadline) { this.job = job; this.stand = stand; this.deadline = deadline; }
 }

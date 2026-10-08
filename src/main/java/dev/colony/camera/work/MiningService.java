@@ -11,6 +11,8 @@ import dev.colony.camera.storage.StorageAccess;
 import dev.colony.camera.storage.StorageNetwork;
 import dev.colony.camera.tech.TechProgress;
 import dev.colony.camera.worker.WorkerEntity;
+import dev.colony.camera.worker.WorkerAttribute;
+import dev.colony.camera.worker.WorkerEffects;
 import net.minecraft.commands.arguments.blocks.BlockStateParser;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
@@ -29,6 +31,8 @@ import net.minecraft.world.level.block.entity.BaseContainerBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.ChestType;
 import net.minecraft.world.level.block.ChestBlock;
+import net.minecraft.world.level.block.BushBlock;
+import net.minecraft.world.level.block.VineBlock;
 import net.minecraft.world.level.pathfinder.Path;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
@@ -62,55 +66,73 @@ public final class MiningService {
 
     @Nullable public static WorkTask assign(ServerLevel level, WorkerEntity worker, ColonyJob job,
             Set<BlockPos> claimed, ReservationLedger ledger, long time) {
-        if (!GroundResources.searchAreaLoaded(level, worker)) { job.reason = "unloaded"; return null; }
-        int size = job.targets.size(); if (size == 0) return null;
-        List<Integer> order = new ArrayList<>();
-        for (int index = 0; index < size; index++) if (!job.completed.get(index)) order.add(index);
-        order.sort(Comparator.<Integer>comparingInt(index -> job.targets.get(index).getY()).reversed()
-                .thenComparingDouble(index -> worker.distanceToSqr(GroundResources.center(Objects.requireNonNull(job.targets.get(index)))))
-                .thenComparingInt(index -> job.targets.get(index).getX()).thenComparingInt(index -> job.targets.get(index).getZ()));
-        if (order.isEmpty()) return null;
-        WorkTask previous = worker.workTask;
-        if (previous != null && time > previous.deadline) previous = null;
-        Integer continuation = job.miningCursors.get(worker.getUUID());
-        int start = previous != null && previous.job.equals(job.id) && order.contains(previous.targetIndex)
-                ? order.indexOf(previous.targetIndex) : continuation != null && order.contains(continuation) ? order.indexOf(continuation) : 0;
-        int[] budget = {MAX_PATHS};
-        int examined = 0;
-        for (int offset = 0; offset < Math.min(64, order.size()); offset++) {
-            examined++;
-            int index = order.get((start + offset) % order.size()); BlockPos target = Objects.requireNonNull(job.targets.get(index));
-            if (claimed.contains(target)) continue;
-            if (!GroundResources.loaded(level, target)) { job.reason = "unloaded"; continue; }
-            if (!matching(level, job, index)) { complete(job, index, "changed"); continue; }
-            BlockState state = Objects.requireNonNull(level.getBlockState(target));
-            if (state.isAir()) { complete(job, index, "changed"); continue; }
-            String blocked = blockProblem(level, worker, job, target, state);
-            if (!blocked.isEmpty()) { job.reason = blocked; continue; }
-            BlockPos stand = previous != null && previous.job.equals(job.id) && previous.targetIndex == index
-                    && previous.targetStand != null && ConstructionManager.workStandable(level, Objects.requireNonNull(previous.targetStand))
-                    && canReach(level, worker, standEyes(worker, Objects.requireNonNull(previous.targetStand)), target)
-                    ? previous.targetStand : findStand(level, worker, target, true, budget);
-            if (stand == null) { job.reason = budget[0] <= 0 ? "queued" : "unreachable"; if (budget[0] <= 0) break; continue; }
-            WorkTask task = new WorkTask(job.id, stand, time + 1200); task.targetIndex = index; task.targetStand = stand;
-            ItemStack held = Objects.requireNonNull(worker.getOffhandItem());
-            if (usableTool(level, worker, state, held)) { job.miningCursors.remove(worker.getUUID()); job.reason = "mining"; return task; }
-            ToolSource source = findTool(level, worker, job, state, ledger, budget);
-            if (source != null && ledger.reserve(worker.getUUID(), job.id, source.identity(), source.available(), 1)) {
-                task.toolPickup = true; task.stand = source.pickup(); task.source = source.ground(); task.destination = source.container();
-                task.slot = source.slot(); ItemStack template = source.tool().copy(); template.setCount(1); task.toolTemplate = template;
-                task.materialClaims.put(source.identity(), 1);
-                task.toolItem = String.valueOf(ForgeRegistries.ITEMS.getKey(source.tool().getItem()));
-                job.miningCursors.remove(worker.getUUID()); job.reason = "collecting_tool"; return task;
-            }
-            if (!state.requiresCorrectToolForDrops()) { job.miningCursors.remove(worker.getUUID()); job.reason = "mining"; return task; }
-            job.reason = "missing_tool";
-            if (budget[0] <= 0) break;
+        return MiningScheduler.assign(level, worker, job, claimed, ledger, time);
+    }
+
+    @Nullable static WorkTask task(ServerLevel level, WorkerEntity worker, ColonyJob job, int index, BlockPos stand,
+            @Nullable WorkTask previous, ReservationLedger ledger, long time) {
+        BlockState state = Objects.requireNonNull(level.getBlockState(Objects.requireNonNull(job.targets.get(index))));
+        WorkTask task = new WorkTask(job.id, stand, time + 1200); task.targetIndex = index; task.targetStand = stand;
+        task.progress = job.miningProgress().get(index);
+        boolean same = previous != null && previous.job.equals(job.id) && previous.targetIndex == index && stand.equals(previous.targetStand);
+        if (usableTool(level, worker, state, Objects.requireNonNull(worker.getOffhandItem()))) {
+            job.reason = "mining";
+            if (same && previous != null && !previous.toolPickup) { previous.progress = task.progress; previous.deadline = time + 1200; return previous; }
+            return task;
         }
-        // The sorted pending list changes as miners move and finish blocks. Never save an offset into it.
-        if (job.finished()) job.miningCursors.clear();
-        else job.miningCursors.put(worker.getUUID(), order.get((start + examined) % order.size()));
-        return null;
+        if (!worker.preferences().automaticTools()) {
+            if (!state.requiresCorrectToolForDrops()) { job.reason = "mining"; return task; }
+            job.reason = "missing_tool"; return null;
+        }
+        if (same && previous != null && previous.toolPickup && reserveTool(level, worker, job, previous, state, ledger)) {
+            previous.progress = task.progress; previous.deadline = time + 1200; job.reason = "collecting_tool"; return previous;
+        }
+        ToolSource source = findTool(level, worker, job, state, ledger, new int[]{MAX_PATHS});
+        if (source != null && ledger.reserve(worker.getUUID(), job.id, source.identity(), source.available(), 1)) {
+            task.toolPickup = true; task.stand = source.pickup(); task.source = source.ground(); task.destination = source.container();
+            task.slot = source.slot(); ItemStack template = source.tool().copy(); template.setCount(1); task.toolTemplate = template;
+            task.materialClaims.put(source.identity(), 1); task.toolItem = String.valueOf(ForgeRegistries.ITEMS.getKey(source.tool().getItem()));
+            job.reason = "collecting_tool"; return task;
+        }
+        if (!state.requiresCorrectToolForDrops()) { job.reason = "mining"; return task; }
+        job.reason = "missing_tool"; return null;
+    }
+    private static boolean reserveTool(ServerLevel level, WorkerEntity worker, ColonyJob job, WorkTask task,
+            BlockState state, ReservationLedger ledger) {
+        ItemStack template = task.toolTemplate;
+        if (template == null || !usableTool(level, worker, state, template)) return false;
+        UUID sourceId = task.source;
+        if (sourceId != null && level.getEntity(sourceId) instanceof ItemEntity source && eligible(source, worker)
+                && ItemStack.isSameItemSameTags(template, Objects.requireNonNull(source.getItem()))) {
+            return ledger.reserve(worker.getUUID(), job.id, sourceId, source.getItem().getCount(), 1);
+        }
+        BlockPos container = task.destination;
+        if (container == null) return false;
+        Inventory inventory = inventory(level, container, job.owner);
+        return inventory != null && ledger.reserve(worker.getUUID(), job.id, identity(level, inventory.anchor(), template), count(inventory, template), 1);
+    }
+    static int difficulty(ServerLevel level, BlockPos pos, BlockState state) {
+        if (state.isAir()) return 0;
+        if (state.is(Objects.requireNonNull(BlockTags.LEAVES)) || state.getBlock() instanceof BushBlock || state.getBlock() instanceof VineBlock) return 1;
+        if (state.is(Objects.requireNonNull(BlockTags.LOGS)) || state.is(Objects.requireNonNull(BlockTags.PLANKS))
+                || state.is(Objects.requireNonNull(BlockTags.DIRT)) || state.getDestroySpeed(level, pos) <= 1) return 2;
+        return state.getDestroySpeed(level, pos) >= 3 ? 4 : 3;
+    }
+    static double estimatedTicks(ServerLevel level, WorkerEntity worker, ColonyJob job, int index) {
+        BlockPos target = Objects.requireNonNull(job.targets.get(index)); BlockState state = Objects.requireNonNull(level.getBlockState(target));
+        ItemStack tool = Objects.requireNonNull(worker.getOffhandItem());
+        if (state.requiresCorrectToolForDrops() && !usableTool(level, worker, state, tool)) return difficulty(level, target, state) * 30.0;
+        FakePlayer actor = actor(level, worker, job); ItemStack saved = Objects.requireNonNull(actor.getMainHandItem());
+        actor.setItemSlot(EquipmentSlot.MAINHAND, tool);
+        try {
+            float rate = (float) (state.getDestroyProgress(actor, level, target) * WorkerEffects.mining(worker.state(), level.getGameTime()));
+            return rate > 0 && Float.isFinite(rate) ? Math.max(1, (1 - job.miningProgress().get(index) / 10000.0) / rate) : 1200;
+        } finally { actor.setItemSlot(EquipmentSlot.MAINHAND, saved); }
+    }
+    static boolean supportsOtherWorker(ServerLevel level, WorkerEntity worker, BlockPos target) {
+        var block = new net.minecraft.world.phys.AABB(target);
+        return level.getEntitiesOfClass(WorkerEntity.class, Objects.requireNonNull(block.inflate(1))).stream()
+                .anyMatch(other -> Objects.requireNonNull(other) != worker && other.isAlive() && other.getBoundingBox().move(0, -0.05, 0).intersects(block));
     }
 
     /** True releases the current unit; a false result keeps walking or digging. */
@@ -118,9 +140,9 @@ public final class MiningService {
         if (task.targetIndex < 0 || task.targetIndex >= job.targets.size()) { job.reason = "changed"; return true; }
         BlockPos target = Objects.requireNonNull(job.targets.get(task.targetIndex));
         if (!GroundResources.loaded(level, target)) { job.reason = "unloaded"; return true; }
-        if (!matching(level, job, task.targetIndex)) { complete(job, task.targetIndex, "changed"); return true; }
+        if (!matching(level, job, task.targetIndex)) { complete(level, job, task.targetIndex, "changed"); return true; }
         BlockState state = Objects.requireNonNull(level.getBlockState(target));
-        if (state.isAir()) { complete(job, task.targetIndex, "changed"); return true; }
+        if (state.isAir()) { complete(level, job, task.targetIndex, "changed"); return true; }
         String blocked = blockProblem(level, worker, job, target, state);
         if (!blocked.isEmpty()) { job.reason = blocked; return true; }
         if (task.toolPickup) return pickupTool(level, worker, job, task, state, ledger, time);
@@ -129,6 +151,7 @@ public final class MiningService {
         }
         // The arrival radius alone does not prove sight, or that the miner has stepped off its own footing.
         boolean aboveTarget = worker.getBoundingBox().move(0, -0.05, 0).intersects(new net.minecraft.world.phys.AABB(target));
+        if (supportsOtherWorker(level, worker, target)) { task.lastWorked = time; job.reason = "walking"; return true; }
         if (worker.distanceToSqr(GroundResources.bottom(task.stand)) > 1.2 || aboveTarget
                 || !canReach(level, worker, Objects.requireNonNull(worker.getEyePosition()), target)) {
             task.lastWorked = time; job.reason = "walking"; return !move(level, worker, task.stand);
@@ -141,22 +164,29 @@ public final class MiningService {
         ItemStack previous = Objects.requireNonNull(actor.getMainHandItem());
         actor.setItemSlot(EquipmentSlot.MAINHAND, usingTool ? tool : Objects.requireNonNull(ItemStack.EMPTY));
         float perTick;
-        try { perTick = state.getDestroyProgress(actor, level, target) * (1 + (worker.miningLevel() - 1) * 0.15F); }
+        try { perTick = (float) (state.getDestroyProgress(actor, level, target) * WorkerEffects.mining(worker.state(), time)); }
         finally { actor.setItemSlot(EquipmentSlot.MAINHAND, previous); }
         int elapsed = task.lastWorked == 0 ? 1 : (int) Math.min(5, Math.max(0, time - task.lastWorked)); task.lastWorked = time;
-        if (perTick <= 0 || Float.isNaN(perTick)) { job.reason = "unbreakable"; return true; }
+        if (perTick <= 0 || Float.isNaN(perTick)) {
+            MiningScheduler.plan(job).defer(task.targetIndex, time, "unbreakable"); job.reason = "unbreakable"; return true;
+        }
         int increment = Math.max(1, (int) Math.min(FINISHED_PROGRESS, Math.ceil(perTick * FINISHED_PROGRESS)));
-        task.progress = (int) Math.min(FINISHED_PROGRESS, (long) task.progress + (long) increment * elapsed);
+        job.miningProgress().remember(task.targetIndex, task.progress);
+        int previousProgress = job.miningProgress().get(task.targetIndex);
+        task.progress = job.miningProgress().advance(task.targetIndex, (long) increment * elapsed, time);
+        if (task.progress > previousProgress) worker.practice(WorkerAttribute.MINING, time, elapsed);
         worker.getLookControl().setLookAt(target.getX() + 0.5, target.getY() + 0.5, target.getZ() + 0.5);
         worker.swing(Objects.requireNonNull(InteractionHand.OFF_HAND)); job.reason = "mining";
         if (task.progress < FINISHED_PROGRESS) return false;
-        if (!breakBlock(level, worker, job, target, usingTool)) { job.reason = "denied"; return true; }
-        complete(job, task.targetIndex, job.done + 1 >= job.total() ? "complete" : "mining");
-        worker.gainMiningExperience(1);
+        if (!breakBlock(level, worker, job, target, usingTool)) {
+            MiningScheduler.plan(job).defer(task.targetIndex, time, "denied"); job.reason = "denied"; return true;
+        }
+        complete(level, job, task.targetIndex, job.done + 1 >= job.total() ? "complete" : "mining");
+        worker.minedBlock();
         return true;
     }
 
-    @Nonnull private static String blockProblem(ServerLevel level, WorkerEntity worker, ColonyJob job, BlockPos pos, BlockState state) {
+    @Nonnull static String blockProblem(ServerLevel level, WorkerEntity worker, ColonyJob job, BlockPos pos, BlockState state) {
         if (state.isAir()) return "changed";
         if (state.getDestroySpeed(level, pos) < 0 || !state.getFluidState().isEmpty()) return "unbreakable";
         // Container and facility teardown remains an explicit player action, never a bulk mining side effect.
@@ -189,6 +219,10 @@ public final class MiningService {
         return stack.getDestroySpeed(state) > 1;
     }
 
+    static boolean ready(ServerLevel level, WorkerEntity worker, BlockState state) {
+        return !state.requiresCorrectToolForDrops() || usableTool(level, worker, state, Objects.requireNonNull(worker.getOffhandItem()));
+    }
+
     @Nullable private static ToolSource findTool(ServerLevel level, WorkerEntity worker, ColonyJob job, BlockState state,
             ReservationLedger ledger, int[] budget) {
         List<ItemEntity> ground = level.getEntitiesOfClass(ItemEntity.class, Objects.requireNonNull(worker.getBoundingBox().inflate(WorkerEntity.SEARCH_RANGE)));
@@ -212,7 +246,7 @@ public final class MiningService {
                 UUID identity = identity(level, inventory.anchor(), tool);
                 int count = count(inventory, tool);
                 if (count <= ledger.reserved(identity)) continue;
-                BlockPos stand = findStand(level, worker, pos, false, budget); if (stand == null) continue;
+                BlockPos stand = findToolStand(level, worker, pos, budget); if (stand == null) continue;
                 return new ToolSource(identity, null, pos, stand, slots.get(i), Objects.requireNonNull(tool.copy()), count);
             }
         }
@@ -368,22 +402,24 @@ public final class MiningService {
         }
     }
 
-    private static boolean matching(ServerLevel level, ColonyJob job, int index) {
+    static boolean matching(ServerLevel level, ColonyJob job, int index) {
         return index >= 0 && index < job.expectedStates.size()
                 && BlockStateParser.serialize(Objects.requireNonNull(level.getBlockState(Objects.requireNonNull(job.targets.get(index))))).equals(job.expectedStates.get(index));
     }
 
-    private static void complete(ColonyJob job, int index, String reason) {
+    static void complete(ServerLevel level, ColonyJob job, int index, String reason) {
+        job.miningProgress().clear(index);
         job.completed.set(index); job.done = job.completed.cardinality(); job.reason = reason;
+        MiningPlan plan = job.miningPlan; if (plan != null) plan.finished(level, index);
     }
 
-    @Nullable private static BlockPos findStand(ServerLevel level, WorkerEntity worker, BlockPos target, boolean mining, int[] budget) {
+    @Nullable private static BlockPos findToolStand(ServerLevel level, WorkerEntity worker, BlockPos target, int[] budget) {
         List<BlockPos> candidates = new ArrayList<>();
         for (int dy = -2; dy <= 1; dy++) for (int dx = -2; dx <= 2; dx++) for (int dz = -2; dz <= 2; dz++) {
             if (dx == 0 && dz == 0 || Math.abs(dx) + Math.abs(dz) > 3) continue;
             BlockPos pos = Objects.requireNonNull(target.offset(dx, dy, dz));
-            if (!ConstructionManager.workStandable(level, pos)) continue;
-            if (mining && !canReach(level, worker, standEyes(worker, pos), target)) continue;
+            if (!ConstructionManager.workStandable(level, pos)
+                    || !StorageResources.canTakeFrom(level, worker, GroundResources.bottom(pos), standEyes(worker, pos), target)) continue;
             candidates.add(pos);
         }
         candidates.sort(Comparator.comparingDouble(pos -> worker.distanceToSqr(GroundResources.bottom(Objects.requireNonNull(pos)))));
@@ -397,13 +433,13 @@ public final class MiningService {
         return null;
     }
 
-    private static boolean canReach(ServerLevel level, WorkerEntity worker, Vec3 eyes, BlockPos target) {
+    static boolean canReach(ServerLevel level, WorkerEntity worker, Vec3 eyes, BlockPos target) {
         Vec3 center = GroundResources.center(target); if (eyes.distanceToSqr(center) > 16) return false;
         var hit = level.clip(new ClipContext(eyes, center, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, worker));
         return hit.getType() == HitResult.Type.MISS || hit.getBlockPos().equals(target);
     }
 
-    @Nonnull private static Vec3 standEyes(WorkerEntity worker, BlockPos stand) {
+    @Nonnull static Vec3 standEyes(WorkerEntity worker, BlockPos stand) {
         return Objects.requireNonNull(GroundResources.bottom(stand).add(0, worker.getEyeHeight(), 0));
     }
 

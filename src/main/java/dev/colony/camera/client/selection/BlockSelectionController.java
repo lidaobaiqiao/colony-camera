@@ -58,6 +58,8 @@ public final class BlockSelectionController {
     private boolean faceAdditive;
     private final HeightSelection heightPointer = new HeightSelection();
     private VolumeScan volumeScan;
+    @Nonnull private final TypeSelection volumeFilter = new TypeSelection();
+    @Nonnull public TypeSelection volumeFilter() { return volumeFilter; }
     private SimilarTask similarScan;
     private boolean jobAdditive;
     private BlockHitResult selectedHit;
@@ -83,7 +85,7 @@ public final class BlockSelectionController {
     public void requestSelection(double x, double y) {
         if (volumeMode()) return;
         enqueue(new Action(x, y, null, state.additive(), currentView, state.mode(),
-                dev.colony.camera.config.SelectionConfig.similarLimit()));
+                dev.colony.camera.config.SelectionConfig.similarLimit(), Objects.requireNonNull(Set.of())));
     }
 
     public void beginFaceSelection(double x, double y) {
@@ -210,7 +212,7 @@ public final class BlockSelectionController {
             setStatus("screen.colonycamera.selection.unloaded");
             return;
         }
-        enqueue(new Action(0, 0, bounds, faceAdditive, null, SelectionState.Mode.VOLUME, 0));
+        enqueue(new Action(0, 0, bounds, faceAdditive, null, SelectionState.Mode.VOLUME, 0, volumeFilter.snapshot()));
         resetFaceGesture();
         updateDescription();
     }
@@ -250,6 +252,7 @@ public final class BlockSelectionController {
         selectionPlayer = null;
         currentView = null;
         state.reset();
+        volumeFilter.set(Objects.requireNonNull(Set.of()));
         selectedHit = null;
         resetGeometry();
         status = emptyMessage();
@@ -429,7 +432,7 @@ public final class BlockSelectionController {
                     setStatus("screen.colonycamera.selection.unloaded");
                     continue;
                 }
-                volumeScan = new VolumeScan(action.bounds());
+                volumeScan = new VolumeScan(action.bounds(), action.filter());
                 jobAdditive = action.additive();
                 setStatus("screen.colonycamera.selection.working");
             } else {
@@ -488,7 +491,8 @@ public final class BlockSelectionController {
                     setStatus("screen.colonycamera.selection.unloaded");
                     return;
                 }
-                if (!world.level().getBlockState(position).isAir()) volumeScan.cells.add(c);
+                var blockState = world.level().getBlockState(position);
+                if (!blockState.isAir() && volumeScan.filter.matches(Objects.requireNonNull(String.valueOf(net.minecraftforge.registries.ForgeRegistries.BLOCKS.getKey(blockState.getBlock()))))) volumeScan.cells.add(c);
             }
             if (!volumeScan.iterator.hasNext()) {
                 VolumeScan finished = volumeScan;
@@ -497,7 +501,7 @@ public final class BlockSelectionController {
                     setStatus("screen.colonycamera.selection.unloaded");
                     return;
                 }
-                finished.cells.removeIf(c -> !isSelectable(world, c));
+                finished.cells.removeIf(c -> !isSelectable(world, c) || !finished.filter.matches(Objects.requireNonNull(String.valueOf(net.minecraftforge.registries.ForgeRegistries.BLOCKS.getKey(world.level().getBlockState(pos(c)).getBlock())))));
                 if (commit(finished.cells, jobAdditive)) selectedHit = null;
             }
         }
@@ -889,7 +893,7 @@ public final class BlockSelectionController {
     }
 
     private record Action(double x, double y, SelectionState.Cuboid bounds, boolean additive, FrameView view,
-                          @Nonnull SelectionState.Mode mode, int similarLimit) {}
+                          @Nonnull SelectionState.Mode mode, int similarLimit, @Nonnull Set<String> filter) {}
     private static final class SimilarTask {
         private final WorldView world;
         private final BlockHitResult hit;
@@ -927,9 +931,11 @@ public final class BlockSelectionController {
         private final SelectionState.Cuboid bounds;
         private final Iterator<SelectionState.Cell> iterator;
         private final Set<SelectionState.Cell> cells = new LinkedHashSet<>();
+        private final TypeSelection filter = new TypeSelection();
 
-        private VolumeScan(SelectionState.Cuboid bounds) {
+        private VolumeScan(SelectionState.Cuboid bounds, @Nonnull Set<String> types) {
             this.bounds = bounds;
+            filter.set(types);
             this.iterator = bounds.cells().iterator();
         }
     }

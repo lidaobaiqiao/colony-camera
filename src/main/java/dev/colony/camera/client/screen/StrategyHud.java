@@ -104,7 +104,7 @@ final class StrategyHud {
     }
     private static boolean enabled(StrategyHudLayout.Action action, BlockSelectionController selection) {
         return switch (action) {
-            case MINE, SWEEP, SAVE_PRESET -> selection.selectionCount() > 0 && !selection.working() && !selection.selectingHeight();
+            case MINE, SAVE_PRESET -> selection.selectionCount() > 0 && !selection.working() && !selection.selectingHeight();
             default -> true;
         };
     }
@@ -150,6 +150,7 @@ final class StrategyHud {
         if (hovered != null) drawTooltip(g, font, List.of(hovered.key(), hovered.description()), mx, my, width);
     }
     @Nonnull private static Component modeName(BlockSelectionController s) {
+        if (s.volumeMode() && !s.volumeFilter().snapshot().isEmpty()) return text("tool.volume_filtered", s.volumeFilter().snapshot().size());
         return text(s.additive() ? "tool.additive" : "tool." + s.mode().name().toLowerCase(Locale.ROOT));
     }
     @Nonnull private static Component hint(BlockSelectionController s) {

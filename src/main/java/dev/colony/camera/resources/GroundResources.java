@@ -30,7 +30,7 @@ public final class GroundResources {
     }
     @Nonnull public static Map<Item, List<ItemEntity>> scan(ServerLevel level, WorkerEntity worker) {
         Map<Item, List<ItemEntity>> result = new HashMap<>();
-        var nearby = level.getEntitiesOfClass(ItemEntity.class, Objects.requireNonNull(worker.getBoundingBox().inflate(WorkerEntity.SEARCH_RANGE)));
+        var nearby = level.getEntitiesOfClass(ItemEntity.class, Objects.requireNonNull(worker.getBoundingBox().inflate(worker.searchRange())));
         for (ItemEntity candidate : nearby) {
             ItemEntity entity = Objects.requireNonNull(candidate);
             Item item = Objects.requireNonNull(entity.getItem().getItem());

@@ -12,6 +12,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
 import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.registries.ForgeRegistries;
@@ -26,18 +27,36 @@ public final class StorageResources {
     public record Claim(@Nonnull BlockPos access, @Nonnull BlockPos pickupStand) {}
     public record Source(@Nonnull UUID identity, @Nonnull BlockPos pos, @Nonnull Item item, int count, @Nullable IItemHandler handler, @Nullable StorageAccess network) {
         public ItemStack take(int quantity) {
-            ItemStack key = new ItemStack(item); if (network != null) return network.extract(key, quantity, false);
+            ItemStack key = new ItemStack(item);
             int obtained = 0;
+            StorageAccess currentNetwork = network;
+            if (currentNetwork != null) {
+                while (obtained < quantity) {
+                    ItemStack batch = currentNetwork.extract(key, Math.min(key.getMaxStackSize(), quantity - obtained), false);
+                    if (batch.isEmpty()) break; obtained += batch.getCount();
+                }
+                key.setCount(obtained); return key;
+            }
             IItemHandler inventory = handler;
             if (inventory != null) for (int slot = 0; slot < inventory.getSlots() && obtained < quantity; slot++) {
-                if (GroundResources.matches(Objects.requireNonNull(inventory.getStackInSlot(slot)), item)) obtained += inventory.extractItem(slot, quantity - obtained, false).getCount();
+                while (GroundResources.matches(Objects.requireNonNull(inventory.getStackInSlot(slot)), item) && obtained < quantity) {
+                    ItemStack batch = inventory.extractItem(slot, Math.min(key.getMaxStackSize(), quantity - obtained), false);
+                    if (batch.isEmpty()) break; obtained += batch.getCount();
+                }
             }
             key.setCount(obtained); return key;
         }
     }
     private StorageResources() {}
     public static List<BlockPos> scan(ServerLevel level, WorkerEntity worker) {
-        var positions = new ArrayList<BlockPos>(); BlockPos origin = worker.blockPosition(); int radius = WorkerEntity.SEARCH_RANGE;
+        return scan(level, worker, worker.searchRange(), false);
+    }
+    /** Explicit colony deliveries can recover their loaded, owned destination after temporary tasks are cleared. */
+    public static List<BlockPos> colonyStores(ServerLevel level, WorkerEntity worker) {
+        return scan(level, worker, worker.navigationRange(), true);
+    }
+    private static List<BlockPos> scan(ServerLevel level, WorkerEntity worker, int radius, boolean colonyOnly) {
+        var positions = new ArrayList<BlockPos>(); BlockPos origin = worker.blockPosition();
         UUID owner = worker.owner();
         if (owner == null) return List.of();
         for (int x = (origin.getX() - radius) >> 4; x <= (origin.getX() + radius) >> 4; x++) for (int z = (origin.getZ() - radius) >> 4; z <= (origin.getZ() + radius) >> 4; z++) {
@@ -46,7 +65,7 @@ public final class StorageResources {
                 if (entity.getBlockPos().distSqr(origin) > radius * radius) continue;
                 if (entity instanceof MachineBlockEntity machine) {
                     if (machine.kind() != ColonyContent.Kind.WAREHOUSE && machine.kind() != ColonyContent.Kind.NETWORK_PORT || !machine.permits(owner)) continue;
-                } else if (!entity.getCapability(ForgeCapabilities.ITEM_HANDLER).isPresent()) continue;
+                } else if (colonyOnly || !entity.getCapability(ForgeCapabilities.ITEM_HANDLER).isPresent()) continue;
                 positions.add(entity.getBlockPos());
             }
         }
@@ -89,8 +108,12 @@ public final class StorageResources {
         return new Source(Objects.requireNonNull(id), pos, item, count, handler, access);
     }
     public static boolean canTake(ServerLevel level, WorkerEntity worker, BlockPos pos) {
-        if (worker.distanceToSqr(GroundResources.center(pos)) > 9) return false;
-        BlockHitResult hit = level.clip(new ClipContext(Objects.requireNonNull(worker.getEyePosition()), GroundResources.center(pos), ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, worker));
+        return canTakeFrom(level, worker, Objects.requireNonNull(worker.position()), Objects.requireNonNull(worker.getEyePosition()), pos);
+    }
+    /** Planning and actual pickup must agree on distance and visibility. */
+    public static boolean canTakeFrom(ServerLevel level, WorkerEntity worker, Vec3 feet, Vec3 eyes, BlockPos pos) {
+        if (!GroundResources.loaded(level, pos) || feet.distanceToSqr(GroundResources.center(pos)) > 9) return false;
+        BlockHitResult hit = level.clip(new ClipContext(eyes, GroundResources.center(pos), ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, worker));
         return hit.getType() == HitResult.Type.MISS || hit.getBlockPos().equals(pos);
     }
 }

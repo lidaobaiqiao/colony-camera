@@ -101,7 +101,9 @@ public final class WorkerOrders {
     public static void executionSeen(ServerLevel level, WorkerEntity executor, LivingEntity target, Set<UUID> visible) {
         Set<UUID> affected = new HashSet<>(visible);
         for (UUID id : visible) if (level.getEntity(Objects.requireNonNull(id)) instanceof WorkerEntity witness) {
-            shock(witness, WorkerProfile.StressCause.WITNESSED_EXECUTION, WorkerConfig.EXECUTION_STRESS.get());
+            var relationship = witness.needs().relations().get(target.getUUID());
+            double bond = relationship == null ? 0 : relationship.affinity() / 100.0;
+            shock(witness, WorkerProfile.StressCause.WITNESSED_EXECUTION, WorkerConfig.EXECUTION_STRESS.get() * (1 + bond * 0.5));
             witness.practice(WorkerAttribute.PERCEPTION, level.getGameTime(), 20);
             if (witness.state().loyalty() >= WorkerConfig.ORDER_LOYALTY.get()) continue;
             for (WorkerEntity hearer : ConstructionManager.get(level).workers(level)) if (hearer != executor && hearer != target

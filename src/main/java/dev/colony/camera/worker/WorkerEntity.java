@@ -40,6 +40,12 @@ public final class WorkerEntity extends PathfinderMob {
     @Nullable public ConstructionManager.Assignment assignment;
     @Nullable public WorkTask workTask;
     @Nonnull private WorkerState state = new WorkerState();
+    @Nonnull private WorkerNeeds needs = new WorkerNeeds();
+    @Nullable private net.minecraft.nbt.Tag rejectedNeeds;
+    private boolean lifeBusy;
+    @Nonnull public WorkerNeeds needs() { return needs; }
+    public boolean lifeBusy() { return lifeBusy; }
+    public void lifeBusy(boolean value) { lifeBusy = value; }
     @Nullable private net.minecraft.nbt.Tag rejectedState;
     @Nullable private BlockPos home;
     @Nullable private WorkerDirective directive;
@@ -111,7 +117,7 @@ public final class WorkerEntity extends PathfinderMob {
     @Nonnull private WorkerPreferences preferences = new WorkerPreferences();
     @Nullable private net.minecraft.nbt.Tag rejectedPreferences;
     @Nonnull public WorkerPreferences preferences() { return preferences; }
-    public boolean stateReadOnly() { return rejectedState != null || rejectedPreferences != null; }
+    public boolean stateReadOnly() { return rejectedState != null || rejectedPreferences != null || rejectedNeeds != null; }
     @Nullable public BlockPos home() { return home; }
     public void home(@Nullable BlockPos value) { if (!stateReadOnly()) home = value; }
     @Nullable public WorkerDirective directive() { return directive; }
@@ -123,7 +129,7 @@ public final class WorkerEntity extends PathfinderMob {
     }
     public boolean available() {
         WorkerDirective currentDirective = directive;
-        return !stateReadOnly() && !resting && !state.striking() && threatUntil <= level().getGameTime()
+        return !stateReadOnly() && !lifeBusy && !resting && !state.striking() && threatUntil <= level().getGameTime()
                 && (currentDirective == null || currentDirective.kind == WorkerDirective.Kind.SACRIFICE);
     }
     public void threatened(UUID executor, long until) { if (!stateReadOnly()) { executionThreat = executor; threatUntil = until; } }
@@ -182,6 +188,7 @@ public final class WorkerEntity extends PathfinderMob {
     }
     @Override public void addAdditionalSaveData(CompoundTag tag) {
         super.addAdditionalSaveData(tag);
+        tag.put("ColonyNeeds", rejectedNeeds == null ? WorkerNeedsStorage.save(needs) : Objects.requireNonNull(rejectedNeeds.copy()));
         tag.put("ColonyPreferences", rejectedPreferences == null ? WorkerPreferenceStorage.save(preferences) : Objects.requireNonNull(rejectedPreferences.copy()));
         UUID id = owner;
         if (id != null) tag.putUUID("ColonyOwner", id);
@@ -197,6 +204,15 @@ public final class WorkerEntity extends PathfinderMob {
     }
     @Override public void readAdditionalSaveData(CompoundTag tag) {
         super.readAdditionalSaveData(tag);
+        needs = new WorkerNeeds(); rejectedNeeds = null; lifeBusy = false;
+        if (tag.contains("ColonyNeeds")) {
+            var rawNeeds = Objects.requireNonNull(tag.get("ColonyNeeds"));
+            try {
+                if (!(rawNeeds instanceof CompoundTag compound)) throw new IllegalArgumentException("needs");
+                needs = WorkerNeedsStorage.load(compound);
+                if (needs.relations().containsKey(getUUID())) throw new IllegalArgumentException("self_relation");
+            } catch (RuntimeException invalid) { rejectedNeeds = Objects.requireNonNull(rawNeeds.copy()); }
+        }
         preferences = new WorkerPreferences(); rejectedPreferences = null;
         if (tag.contains("ColonyPreferences")) {
             var rawPreferences = Objects.requireNonNull(tag.get("ColonyPreferences"));

@@ -217,6 +217,7 @@ public final class WorkPanel {
             for (var cost : tech.costs()) lines.add(text("ingredient", ingredientName(Objects.requireNonNull(cost)), cost.count()));
             lines.add(text("research_duration", Math.max(0, tech.researchTicks() / 20)));
         } else lines.add(text("technology_complete"));
+        lines.add(text("technology_tree_hint"));
         if (tech.readOnly()) lines.add(text("reason.tech_data"));
         if (chosenStation(true) == null) lines.add(text("need_research_station"));
         var bounds = layout.bounds(); int y = layout.list().y();

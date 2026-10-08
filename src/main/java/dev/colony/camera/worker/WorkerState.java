@@ -90,10 +90,14 @@ public final class WorkerState {
     }
     public boolean striking() { return striking; }
     public double loyalty() { return loyalty; }
+    public void receivedCare(double reward) {
+        if (!Double.isFinite(reward) || reward < 0) throw new IllegalArgumentException("care"); loyalty = Math.min(1e12, loyalty + reward);
+    }
     public void lifeImproved(double quality, double reward) {
         if (!Double.isFinite(quality) || quality < 0 || !Double.isFinite(reward) || reward < 0) throw new IllegalArgumentException("quality");
         if (quality > lastQuality) loyalty += (quality - lastQuality) * reward;
-        lastQuality = quality;
+        // Repeating deprivation and recovery must not generate an endless loyalty reward.
+        lastQuality = Math.max(lastQuality, quality);
     }
     public double hunger() { return hunger; }
     public double rest() { return rest; }

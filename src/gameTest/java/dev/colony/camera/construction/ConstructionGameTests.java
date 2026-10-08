@@ -76,10 +76,11 @@ public final class ConstructionGameTests {
     public static void creativeTabPublishesAllFacilitiesAndUpgrades(GameTestHelper helper) {
         var tab = ColonyContent.COLONY_TAB.get();
         tab.buildContents(new net.minecraft.world.item.CreativeModeTab.ItemDisplayParameters(Objects.requireNonNull(helper.getLevel().enabledFeatures()), true, Objects.requireNonNull(helper.getLevel().registryAccess())));
-        helper.assertTrue(tab.getDisplayItems().size() == 12, "Creative colony tab is incomplete");
+        helper.assertTrue(tab.getDisplayItems().size() == 14, "Creative colony tab is incomplete");
         for (var item : List.of(ColonyContent.PRINTING_CORE.get().asItem(), ColonyContent.WAREHOUSE.get().asItem(), ColonyContent.CONTROLLER.get().asItem(),
                 ColonyContent.PORT.get().asItem(), ColonyContent.CABLE.get().asItem(), ColonyContent.CAPACITY_UPGRADE.get(), ColonyContent.STACK_UPGRADE.get(),
-                ColonyContent.COLONY_WORKBENCH.get().asItem(), ColonyContent.RESEARCH_DESK.get().asItem(), ColonyContent.RESIDENCE.get().asItem(), ColonyContent.ACADEMY.get().asItem(), ColonyContent.ACADEMY_UPGRADE.get())) {
+                ColonyContent.COLONY_WORKBENCH.get().asItem(), ColonyContent.RESEARCH_DESK.get().asItem(), ColonyContent.RESIDENCE.get().asItem(), ColonyContent.ACADEMY.get().asItem(), ColonyContent.ACADEMY_UPGRADE.get(),
+                ColonyContent.WATER_PUMP.get().asItem(), ColonyContent.MEETING_POINT.get().asItem())) {
             helper.assertTrue(tab.contains(new ItemStack(Objects.requireNonNull(item))), "Missing creative/search entry: " + item);
         }
         helper.succeed();

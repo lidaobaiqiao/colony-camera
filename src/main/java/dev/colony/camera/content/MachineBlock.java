@@ -58,6 +58,9 @@ public final class MachineBlock extends BaseEntityBlock {
             dev.colony.camera.work.WorkNetwork.openResidence(server, pos);
         } else if (kind == ColonyContent.Kind.ACADEMY) {
             dev.colony.camera.work.WorkNetwork.openPeople(server);
+        } else if (kind == ColonyContent.Kind.WATER_PUMP || kind == ColonyContent.Kind.MEETING_POINT) {
+            String result = dev.colony.camera.worker.WorkerSurvival.facilityStatus(Objects.requireNonNull(server.serverLevel()), machine);
+            server.displayClientMessage(Objects.requireNonNull(Component.translatable("colonycamera.life.facility." + result)), true);
         } else if (kind != ColonyContent.Kind.NETWORK_CABLE) NetworkHooks.openScreen(server, machine, pos);
         return InteractionResult.CONSUME;
     }

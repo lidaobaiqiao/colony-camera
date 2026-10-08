@@ -30,6 +30,19 @@ public final class WorkerSnapshots {
         value.addProperty("stress", state.stress(WorkerEffects.tolerance(state))); value.addProperty("loyalty", state.loyalty());
         value.addProperty("hunger", state.hunger()); value.addProperty("rest", state.rest()); value.addProperty("health", worker.getHealth());
         value.addProperty("reason", worker.lifeReason()); value.addProperty("striking", state.striking());
+        JsonObject needs = new JsonObject(); needs.addProperty("hydration", worker.needs().hydration()); needs.addProperty("social", worker.needs().social());
+        needs.addProperty("temperature", worker.needs().temperature()); needs.addProperty("waterQuality", worker.needs().waterQuality());
+        needs.addProperty("drinks", worker.needs().drinks()); needs.addProperty("meals", worker.needs().meals());
+        needs.addProperty("workSpeed", worker.needs().workSpeed(WorkerEffects.environmentResistance(state))); value.add("needs", needs);
+        JsonArray relationships = new JsonArray();
+        worker.needs().relations().entrySet().stream().sorted(java.util.Comparator.<java.util.Map.Entry<java.util.UUID, WorkerNeeds.Relation>>comparingLong(entry -> entry.getValue().togetherTicks()).reversed())
+                .forEach(entry -> {
+                    JsonObject relation = new JsonObject(); var id = Objects.requireNonNull(entry.getKey()); var acquaintance = worker.level() instanceof net.minecraft.server.level.ServerLevel server ? server.getEntity(id) : null;
+                    relation.addProperty("id", id.toString()); relation.addProperty("name", acquaintance == null ? id.toString().substring(0, 8) : acquaintance.getDisplayName().getString() + " " + id.toString().substring(0, 8));
+                    relation.addProperty("loaded", acquaintance != null && acquaintance.isAlive()); relation.addProperty("affinity", entry.getValue().affinity());
+                    relation.addProperty("seconds", entry.getValue().togetherTicks() / 20); relationships.add(relation);
+                });
+        value.add("relationships", relationships);
         JsonObject preferences = new JsonObject();
         preferences.addProperty("automaticTools", worker.preferences().automaticTools());
         for (var task : WorkerPreferences.Task.values()) preferences.addProperty(task.name(), worker.preferences().allows(Objects.requireNonNull(task)));
@@ -74,10 +87,14 @@ public final class WorkerSnapshots {
         var level = Objects.requireNonNull(player.serverLevel()); JsonArray facilities = new JsonArray();
         for (var pos : WorkStations.owned(level, Objects.requireNonNull(player.getUUID())).stream().limit(128).toList()) {
             if (!(level.getBlockEntity(Objects.requireNonNull(pos)) instanceof MachineBlockEntity machine)
-                    || machine.kind() != ColonyContent.Kind.RESIDENCE && machine.kind() != ColonyContent.Kind.ACADEMY) continue;
+                    || machine.kind() != ColonyContent.Kind.RESIDENCE && machine.kind() != ColonyContent.Kind.ACADEMY
+                    && machine.kind() != ColonyContent.Kind.WATER_PUMP && machine.kind() != ColonyContent.Kind.MEETING_POINT) continue;
             var inspected = machine.kind() == ColonyContent.Kind.RESIDENCE ? Residences.details(level, pos) : null;
             JsonObject entry = new JsonObject(); entry.addProperty("pos", pos.asLong()); entry.addProperty("kind", machine.kind().name());
             entry.addProperty("level", machine.schoolLevel()); entry.addProperty("valid", !machine.facilityReadOnly() && (inspected == null || inspected.room() != null));
+            if (machine.kind() == ColonyContent.Kind.WATER_PUMP || machine.kind() == ColonyContent.Kind.MEETING_POINT) {
+                String status = WorkerSurvival.facilityStatus(level, machine); entry.addProperty("status", status); entry.addProperty("valid", status.equals("ready"));
+            }
             entry.addProperty("occupied", machine.resident() != null); facilities.add(entry);
             entry.addProperty("name", machine.customName == null ? "" : machine.customName.getString());
             entry.addProperty("readOnly", machine.facilityReadOnly()); entry.addProperty("automatic", machine.automaticHousing());

@@ -136,10 +136,14 @@ public final class ColonyWorkManager extends SavedData {
         ColonyJob job = begin(player, ColonyJob.Kind.CRAFT); job.station = station; job.recipe = recipe; job.requested = count; add(job);
     }
     public void research(ServerPlayer player, BlockPos station) {
+        if (TechProgress.get(Objects.requireNonNull(player.serverLevel())).tier(Objects.requireNonNull(player.getUUID())) >= 3) throw new IllegalArgumentException("research");
+        research(player, station, TechProgress.get(Objects.requireNonNull(player.serverLevel())).tier(Objects.requireNonNull(player.getUUID())) + 1);
+    }
+    public void research(ServerPlayer player, BlockPos station, int node) {
         validatePlayer(player); station(player, station, true);
-        int tier = TechProgress.get(Objects.requireNonNull(player.serverLevel())).tier(Objects.requireNonNull(player.getUUID()));
-        if (tier >= 3 || jobs(Objects.requireNonNull(player.getUUID())).stream().anyMatch(job -> job.kind == ColonyJob.Kind.RESEARCH && !job.cancelled && !job.finished())) throw new IllegalArgumentException("research");
-        ColonyJob job = begin(player, ColonyJob.Kind.RESEARCH); job.station = station; job.recipe = Objects.requireNonNull(String.valueOf(tier + 1)); add(job);
+        if (!TechProgress.get(Objects.requireNonNull(player.serverLevel())).researchReason(Objects.requireNonNull(player.serverLevel()), Objects.requireNonNull(player.getUUID()), node).equals("ready")
+                || jobs(Objects.requireNonNull(player.getUUID())).stream().anyMatch(job -> job.kind == ColonyJob.Kind.RESEARCH && !job.cancelled && !job.finished())) throw new IllegalArgumentException("research");
+        ColonyJob job = begin(player, ColonyJob.Kind.RESEARCH); job.station = station; job.recipe = Objects.requireNonNull(String.valueOf(node)); add(job);
     }
     /** The caller validates both intents before adding either one. Supply shares its parent's FIFO position. */
     public void supply(ConstructionProject parent, BlockPos station, String recipe) {
@@ -262,6 +266,10 @@ public final class ColonyWorkManager extends SavedData {
             JsonObject entry = new JsonObject(); entry.addProperty("id", job.id.toString()); entry.addProperty("kind", job.kind.name());
             entry.addProperty("name", job.itemSweep() ? "colonycamera.work.item_sweep" : "colonycamera.work.kind." + job.kind.name().toLowerCase(java.util.Locale.ROOT)); entry.addProperty("priority", job.priority);
             entry.addProperty("supply", job.parentProject != null);
+            if (job.kind == ColonyJob.Kind.RESEARCH) {
+                int node = switch (job.recipe) { case "1" -> 1; case "2" -> 2; case "3" -> 3; case "4" -> 4; case "5" -> 5; case "6" -> 6; case "7" -> 7; default -> 0; };
+                entry.addProperty("name", TechProgress.name(node));
+            }
             if (job.parentProject != null) entry.addProperty("name", CraftingService.output(Objects.requireNonNull(player.serverLevel()), job.recipe).getDescriptionId());
             entry.addProperty("done", job.done); entry.addProperty("total", job.total()); entry.addProperty("reason", job.reason);
             entry.addProperty("finished", job.finished());

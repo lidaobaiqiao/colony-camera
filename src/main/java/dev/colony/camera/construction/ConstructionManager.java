@@ -424,7 +424,8 @@ public final class ConstructionManager extends SavedData {
         }
         task.actionProgress += 1;
         worker.practice(dev.colony.camera.worker.WorkerAttribute.BUILDING, time, 1);
-        if (task.actionProgress < dev.colony.camera.worker.WorkerEffects.buildTicks(worker.state(), time)) return;
+        if (task.actionProgress < dev.colony.camera.worker.WorkerEffects.buildTicks(worker.state(), time)
+                / worker.needs().workSpeed(dev.colony.camera.worker.WorkerEffects.environmentResistance(worker.state()))) return;
         if (place(level, worker, project, unit)) {
             worker.consumeCargo(unit.count());
             if (worker.getMainHandItem().isEmpty()) {

@@ -45,7 +45,8 @@ public final class ColonyWorkClient {
                          int requiredTier, boolean unlocked, @Nonnull List<Ingredient> ingredients) {}
     public record Tech(int tier, @Nonnull String name, int nextTier, @Nonnull List<Ingredient> costs, int researchTicks, boolean readOnly) {}
 
-    public record TechNode(int tier, @Nonnull String name, int requiredTier, int researchTicks, @Nonnull List<Ingredient> costs) {}
+    public record TechNode(int tier, @Nonnull String name, int requiredTier, int researchTicks, @Nonnull List<Ingredient> costs,
+                           boolean done, boolean available, @Nonnull String reason, @Nonnull String effect, boolean running, double progress) {}
     @Nonnull private static List<TechNode> techNodes = Objects.requireNonNull(List.of());
     private static long noticeTime;
     @Nonnull public static List<TechNode> techNodes() { return techNodes; }
@@ -108,6 +109,9 @@ public final class ColonyWorkClient {
     }
     public static void research(BlockPos station) {
         JsonObject payload = new JsonObject(); payload.addProperty("station", station.asLong()); request("research", payload);
+    }
+    public static void research(BlockPos station, int node) {
+        JsonObject payload = new JsonObject(); payload.addProperty("station", station.asLong()); payload.addProperty("node", node); request("research", payload);
     }
     public static void control(String action, UUID id, int value) {
         JsonObject payload = new JsonObject(); payload.addProperty("id", id.toString()); payload.addProperty("value", value);
@@ -175,7 +179,9 @@ public final class ColonyWorkClient {
                 for (JsonElement entry : array(value, "nodes")) {
                     JsonObject node = Objects.requireNonNull(entry.getAsJsonObject());
                     newNodes.add(new TechNode(integer(node, "tier", 0), string(node, "name", ""), integer(node, "requiredTier", -1),
-                            integer(node, "researchTicks", 0), ingredients(node, "costs")));
+                            integer(node, "researchTicks", 0), ingredients(node, "costs"), bool(node, "done", false), bool(node, "available", false),
+                            string(node, "reason", ""), string(node, "effect", ""), bool(node, "running", false),
+                            node.has("progress") ? Math.max(0, Math.min(1, node.get("progress").getAsDouble())) : 0));
                 }
             }
             Component newNotice = notice; boolean hasNotice = false;

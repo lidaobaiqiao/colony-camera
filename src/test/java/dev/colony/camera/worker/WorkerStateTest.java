@@ -62,6 +62,7 @@ final class WorkerStateTest {
         state.lifeImproved(2, 2); assertEquals(0, state.loyalty());
         state.lifeImproved(3, 2); assertEquals(2, state.loyalty());
         state.lifeImproved(3, 2); state.lifeImproved(2.5, 2); assertEquals(2, state.loyalty());
+        state.lifeImproved(3, 2); assertEquals(2, state.loyalty(), "Deprivation/refill loops cannot mint loyalty");
         state.addPressure(StressCause.HUNGER, 99); state.mood(1, 1); assertEquals(2, state.loyalty());
         state.addPressure(StressCause.OVERWORK, 1); state.mood(1, 1); assertEquals(1, state.loyalty());
     }

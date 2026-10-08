@@ -23,7 +23,7 @@ import java.util.UUID;
 
 @ParametersAreNonnullByDefault
 public final class WorkNetwork {
-    @Nonnull public static final SimpleChannel CHANNEL = Objects.requireNonNull(NetworkRegistry.newSimpleChannel(Objects.requireNonNull(ResourceLocation.tryParse(ColonyCamera.ID + ":work")), () -> "4", "4"::equals, "4"::equals));
+    @Nonnull public static final SimpleChannel CHANNEL = Objects.requireNonNull(NetworkRegistry.newSimpleChannel(Objects.requireNonNull(ResourceLocation.tryParse(ColonyCamera.ID + ":work")), () -> "5", "5"::equals, "5"::equals));
     public record Request(@Nonnull String action, @Nonnull String payload) {}
     public record Snapshot(@Nonnull String dimension, @Nonnull String json) {}
     public record OpenStation(@Nonnull BlockPos pos, boolean research) {}
@@ -129,7 +129,10 @@ public final class WorkNetwork {
                 }
                 case "marks" -> { if (queryAllowed(MARK_QUERIES, player, 20)) WorkTargetMarks.send(player, data.get("request").getAsInt(), data.get("known").getAsLong()); return; }
                 case "craft" -> manager.craft(player, Objects.requireNonNull(BlockPos.of(data.get("station").getAsLong())), Objects.requireNonNull(data.get("recipe").getAsString()), data.get("count").getAsInt());
-                case "research" -> manager.research(player, Objects.requireNonNull(BlockPos.of(data.get("station").getAsLong())));
+                case "research" -> {
+                    var pos = Objects.requireNonNull(BlockPos.of(data.get("station").getAsLong()));
+                    if (data.has("node")) manager.research(player, pos, data.get("node").getAsInt()); else manager.research(player, pos);
+                }
                 case "worker" -> dev.colony.camera.worker.WorkerOrders.request(player, data);
                 case "residence" -> dev.colony.camera.worker.ResidenceOrders.request(player, data);
                 case "print" -> {

@@ -144,7 +144,7 @@ public final class CraftingService {
             if (!validOutput(output, definition)) continue;
             JsonObject entry = new JsonObject(); entry.addProperty("id", definition.id()); entry.addProperty("name", output.getDescriptionId());
             entry.addProperty("output", String.valueOf(ForgeRegistries.ITEMS.getKey(output.getItem()))); entry.addProperty("count", output.getCount());
-            entry.addProperty("requiredTier", definition.tier()); entry.addProperty("unlocked", !technology.readOnly() && tier >= definition.tier());
+            entry.addProperty("requiredTier", definition.tier()); entry.addProperty("unlocked", !technology.readOnly() && tier >= definition.tier() && researchAllows(level, owner, output));
             entry.addProperty("craftTicks", CRAFT_TICKS); JsonArray ingredients = new JsonArray();
             Map<String, JsonObject> aggregated = new LinkedHashMap<>();
             for (Ingredient ingredient : recipe.getIngredients()) {
@@ -175,7 +175,13 @@ public final class CraftingService {
     public static boolean allowed(ServerLevel level, UUID owner, String id) {
         Definition definition = definition(level, id); CraftingRecipe recipe = recipe(level, id); TechProgress technology = TechProgress.get(level);
         return definition != null && recipe != null && !technology.readOnly() && technology.tier(owner) >= definition.tier()
+                && researchAllows(level, owner, Objects.requireNonNull(recipe.getResultItem(Objects.requireNonNull(level.registryAccess()))))
                 && validOutput(Objects.requireNonNull(recipe.getResultItem(Objects.requireNonNull(level.registryAccess()))), definition);
+    }
+    private static boolean researchAllows(ServerLevel level, UUID owner, ItemStack output) {
+        if (output.is(Objects.requireNonNull(ColonyContent.WATER_PUMP.get().asItem()))) return TechProgress.get(level).unlocked(owner, TechProgress.WATERWORKS);
+        if (output.is(Objects.requireNonNull(ColonyContent.MEETING_POINT.get().asItem()))) return TechProgress.get(level).unlocked(owner, TechProgress.COMMUNITY);
+        return true;
     }
 
     private record PreviewContext(@Nonnull WorkerEntity worker, @Nonnull Bank stock) {}
@@ -243,10 +249,10 @@ public final class CraftingService {
             if (definition == null || recipe(level, job.recipe) == null) { job.reason = "recipe"; return null; }
             if (TechProgress.get(level).tier(job.owner) < definition.tier()) { job.reason = "technology"; return null; }
         } else {
-            int target = researchTarget(job); int tier = TechProgress.get(level).tier(job.owner);
+            int target = researchTarget(job);
             if (target == 0) { job.reason = "recipe"; return null; }
-            if (tier >= target) { job.done = job.requested; job.reason = "finished"; return null; }
-            if (target != tier + 1) { job.reason = "technology"; return null; }
+            if (TechProgress.get(level).unlocked(job.owner, target)) { job.done = job.requested; job.reason = "finished"; return null; }
+            if (!TechProgress.get(level).researchReason(level, job.owner, target).equals("ready")) { job.reason = "technology"; return null; }
         }
         List<BlockPos> stands = new ArrayList<>();
         for (int dy : new int[]{0, 1, -1}) for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++) {
@@ -298,7 +304,7 @@ public final class CraftingService {
         worker.getNavigation().stop();
         int tier = TechProgress.get(level).tier(job.owner);
         int target = researchTarget(job);
-        if (job.kind == ColonyJob.Kind.RESEARCH && tier >= target && target != 0) { job.done = job.requested; job.reason = "finished"; return true; }
+        if (job.kind == ColonyJob.Kind.RESEARCH && TechProgress.get(level).unlocked(job.owner, target) && target != 0) { job.done = job.requested; job.reason = "finished"; return true; }
         int duration = job.kind == ColonyJob.Kind.RESEARCH ? TechProgress.researchTicks(target) : CRAFT_TICKS;
         if (duration == 0 || TechProgress.get(level).readOnly()) { job.reason = tier == 3 ? "researched" : "tech_data"; return true; }
         Prepared prepared = null;
@@ -308,6 +314,7 @@ public final class CraftingService {
             if (!current.matches(task.materialClaims)) { job.reason = "reserved"; return true; }
         }
         double speed = dev.colony.camera.worker.WorkerEffects.manufacturing(worker.state(), time) * dev.colony.camera.worker.WorkerEffects.operation(worker.state());
+        speed *= worker.needs().workSpeed(dev.colony.camera.worker.WorkerEffects.environmentResistance(worker.state()));
         if (job.kind == ColonyJob.Kind.RESEARCH && worker.state().hasAbility(dev.colony.camera.worker.WorkerProfile.Ability.RESEARCH))
             speed *= dev.colony.camera.worker.WorkerEffects.learning(worker.state());
         job.workProgress = Math.min(duration, job.workProgress + speed);
@@ -324,7 +331,7 @@ public final class CraftingService {
         // All inventory mutations and the unlock happen on one server tick after the final recheck.
         try {
             if (job.kind == ColonyJob.Kind.RESEARCH) {
-                if (!TechProgress.get(level).advance(job.owner, tier, bank::commit)) { job.reason = "technology"; return true; }
+                if (!TechProgress.get(level).complete(level, job.owner, target, bank::commit)) { job.reason = "technology"; return true; }
             } else bank.commit();
         } catch (RuntimeException failure) {
             LogUtils.getLogger().warn("Colony station transaction rolled back for job {}", job.id, failure); job.reason = "transaction"; return true;
@@ -361,13 +368,13 @@ public final class CraftingService {
         int tier = TechProgress.get(level).tier(job.owner);
         if (job.kind == ColonyJob.Kind.RESEARCH) {
             int target = researchTarget(job);
-            if (target != tier + 1 || TechProgress.get(level).readOnly()) return new Prepared("technology", null);
+            if (!TechProgress.get(level).researchReason(level, job.owner, target).equals("ready")) return new Prepared("technology", null);
             for (TechProgress.Cost cost : TechProgress.costs(target)) if (!bank.consume(new ItemStack(cost.item()), cost.count())) return new Prepared("materials", null);
             return new Prepared("ready", bank);
         }
         Definition definition = definition(level, job.recipe); CraftingRecipe recipe = recipe(level, job.recipe);
         if (definition == null || recipe == null) return new Prepared("recipe", null);
-        if (tier < definition.tier()) return new Prepared("technology", null);
+        if (tier < definition.tier() || !researchAllows(level, job.owner, Objects.requireNonNull(recipe.getResultItem(Objects.requireNonNull(level.registryAccess()))))) return new Prepared("technology", null);
         RecipeGrid grid = new RecipeGrid(); int[] attempts = {0};
         if (!bank.fill(recipe, grid, 0, attempts)) return new Prepared("materials", null);
         if (!recipe.matches(grid, level)) return new Prepared("recipe", null);
@@ -382,7 +389,7 @@ public final class CraftingService {
         return !output.isEmpty() && output.is(Objects.requireNonNull(definition.output().get())) && output.getCount() >= 1 && output.getCount() <= output.getMaxStackSize();
     }
     private static int researchTarget(ColonyJob job) {
-        return switch (job.recipe) { case "1" -> 1; case "2" -> 2; case "3" -> 3; default -> 0; };
+        return switch (job.recipe) { case "1" -> 1; case "2" -> 2; case "3" -> 3; case "4" -> 4; case "5" -> 5; case "6" -> 6; case "7" -> 7; default -> 0; };
     }
     @Nonnull private static Bank bank(ServerLevel level, WorkerEntity worker, ColonyJob job, BlockPos station, @Nullable BlockPos stand, ReservationLedger ledger, @Nullable Map<UUID, Integer> claims) {
         Bank bank = new Bank(level, ledger, claims); Set<WarehouseInventory> seen = Collections.newSetFromMap(new IdentityHashMap<>());

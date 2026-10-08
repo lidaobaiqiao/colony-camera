@@ -8,7 +8,6 @@ import dev.colony.camera.resources.GroundResources;
 import dev.colony.camera.resources.ReservationLedger;
 import dev.colony.camera.resources.StorageResources;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
@@ -32,6 +31,7 @@ public final class WorkerLiving {
             if (home == null && time % 100 == 0) { Residences.assign(level, worker); home = Residences.home(level, worker); }
             double foodUse = WorkerConfig.HUNGER_PER_TICK.get() / (1 + Math.log1p(state.points(WorkerAttribute.HUNGER).min(java.math.BigInteger.valueOf(1000000)).doubleValue() - 1) * WorkerConfig.coefficient(WorkerAttribute.HUNGER));
             state.metabolism(ticks, working, foodUse, WorkerConfig.FATIGUE_PER_TICK.get() / WorkerEffects.energy(state));
+            WorkerSurvival.metabolism(level, worker, time, ticks, working);
             double rate = WorkerConfig.STRESS_PER_DAY.get() * ticks / 24000.0;
             if (home == null) state.addPressure(StressCause.HOMELESS, rate * 0.5);
             if (state.hunger() < 6) state.addPressure(StressCause.HUNGER, rate);
@@ -46,13 +46,12 @@ public final class WorkerLiving {
             if (worker.resting() && !state.striking() && state.rest() >= 0.95 && state.stress(WorkerEffects.tolerance(state)) <= 35 && state.continuousWork() == 0)
                 worker.resting(false);
             // Improvements are observed only after providing a home/food/rest, never from the passage of idle time.
-            double quality = (home != null ? 3 + Math.min(1, home.floor().size() / 32.0) : 0) + state.foodQuality() + (state.rest() >= 0.9 ? 1 : 0);
-            state.lifeImproved(quality, WorkerConfig.LOYALTY_IMPROVEMENT.get());
             worker.applyStateEffects();
         }
         if (state.hunger() < Math.min(10, WorkerEffects.hunger(state) / 2) && time % 20 == 0 && eatOrSeek(level, worker, time)) {
             suspend(worker, level); return;
         }
+        if (WorkerSurvival.tick(level, worker, time)) { suspend(worker, level); return; }
         if (worker.resting() || state.striking() || state.hunger() <= 1) {
             suspend(worker, level); worker.lifeReason(state.striking() ? "strike" : state.hunger() <= 1 ? "hungry" : "resting");
             if (time % 20 == 0) rest(level, worker, time);
@@ -84,10 +83,11 @@ public final class WorkerLiving {
     private static void rest(ServerLevel level, WorkerEntity worker, long time) {
         var room = Residences.home(level, worker); boolean atHome = false;
         if (room != null) {
-            if (worker.distanceToSqr(GroundResources.center(room.bed())) < 2.25 && StorageResources.canTake(level, worker, room.bed())) {
+            if (worker.distanceToSqr(GroundResources.center(room.bed())) <= 2.25 && StorageResources.canTake(level, worker, room.bed())) {
                 worker.getNavigation().stop(); if (!worker.isSleeping()) worker.startSleeping(room.bed()); atHome = true;
             } else {
-                BlockPos stand = approach(level, worker, room.bed());
+                // Leave room for the navigation endpoint tolerance at diagonal corners.
+                BlockPos stand = approach(level, worker, room.bed(), 2);
                 if (stand != null) follow(level, worker, stand);
             }
         }
@@ -131,6 +131,9 @@ public final class WorkerLiving {
     private static void consume(ServerLevel level, WorkerEntity worker, ItemStack meal, long time) {
         var food = meal.getFoodProperties(worker); if (food == null) return;
         worker.state().eat(food.getNutrition(), WorkerEffects.hunger(worker.state()), Math.max(0.5, food.getSaturationModifier() * 2));
+        worker.needs().meal();
+        if (worker.state().foodQuality() >= 1 && worker.state().rest() >= 0.4 && worker.needs().hydration() >= 40 && worker.needs().drinks() > 0
+                && Residences.home(level, worker) != null && worker.needs().claimCare(time / 24000)) worker.state().receivedCare(WorkerConfig.LOYALTY_CARE.get());
         worker.practice(WorkerAttribute.HUNGER, time, 20); worker.lifeReason("eating");
         ItemStack remainder = meal.getCraftingRemainingItem();
         if (!remainder.isEmpty()) net.minecraft.world.Containers.dropItemStack(level, worker.getX(), worker.getY(), worker.getZ(), remainder);
@@ -172,6 +175,7 @@ public final class WorkerLiving {
         }
     }
     private static double teaching(ServerLevel level, WorkerEntity learner, BlockPos station, long time) {
+        var owner = learner.owner();
         double bonus = 1;
         for (WorkerEntity teacher : ConstructionManager.get(level).workers(level)) {
             WorkerDirective course = teacher.directive();
@@ -182,15 +186,26 @@ public final class WorkerLiving {
             bonus = Math.max(bonus, 1 + 0.1 * WorkerEffects.learning(teacher.state()));
             teacher.practice(WorkerAttribute.LEARNING, time, 1);
         }
-        return bonus;
+        return bonus * (owner != null && dev.colony.camera.tech.TechProgress.get(level).unlocked(owner, dev.colony.camera.tech.TechProgress.EDUCATION) ? 1.5 : 1);
     }
     @Nullable public static BlockPos approach(ServerLevel level, WorkerEntity worker, BlockPos target) {
-        if (StorageResources.canTake(level, worker, target)) return Objects.requireNonNull(worker.blockPosition());
-        for (Direction direction : Direction.Plane.HORIZONTAL) for (int dy : new int[]{0, 1, -1}) {
-            BlockPos stand = Objects.requireNonNull(target.relative(Objects.requireNonNull(direction)).offset(0, dy, 0));
-            if (!ConstructionManager.workStandable(level, stand) || !StorageResources.canTakeFrom(level, worker, GroundResources.bottom(stand),
+        return approach(level, worker, target, 9);
+    }
+    @Nullable private static BlockPos approach(ServerLevel level, WorkerEntity worker, BlockPos target, double reachSquared) {
+        if (worker.distanceToSqr(GroundResources.center(target)) <= reachSquared && StorageResources.canTake(level, worker, target)) return Objects.requireNonNull(worker.blockPosition());
+        var candidates = new java.util.ArrayList<BlockPos>();
+        for (int dy : new int[]{0, 1, -1}) for (int dx = -2; dx <= 2; dx++) for (int dz = -2; dz <= 2; dz++) {
+            if (dx == 0 && dz == 0) continue;
+            BlockPos stand = Objects.requireNonNull(target.offset(dx, dy, dz));
+            if (GroundResources.bottom(stand).distanceToSqr(GroundResources.center(target)) > reachSquared || !ConstructionManager.workStandable(level, stand) || !StorageResources.canTakeFrom(level, worker, GroundResources.bottom(stand),
                     Objects.requireNonNull(GroundResources.bottom(stand).add(0, worker.getEyeHeight(), 0)), target)) continue;
-            if (GroundResources.path(level, worker, stand) != null) return stand;
+            candidates.add(stand);
+        }
+        var active = worker.getNavigation().getTargetPos();
+        if (active != null && !worker.getNavigation().isDone() && candidates.contains(active)) return active;
+        candidates.sort(java.util.Comparator.comparingDouble(pos -> worker.distanceToSqr(GroundResources.bottom(Objects.requireNonNull(pos)))));
+        for (BlockPos stand : candidates.stream().limit(12).toList()) {
+            if (GroundResources.path(level, worker, Objects.requireNonNull(stand)) != null) return stand;
         }
         return null;
     }

@@ -42,7 +42,12 @@ public final class WorkerStateGameTests {
         scene.worker().state().restoreLife(20, .1, 1, 2, 0, false, 0, Objects.requireNonNull(BigInteger.ZERO), 0, false);
         scene.worker().resting(true);
         helper.succeedWhen(() -> {
-            helper.assertTrue(scene.worker().isSleeping() && scene.worker().state().rest() > .1, "Worker failed to traverse the doorway and rest: " + scene.worker().blockPosition());
+            var home = Residences.home(Objects.requireNonNull(helper.getLevel()), scene.worker());
+            helper.assertTrue(scene.worker().isSleeping() && scene.worker().state().rest() > .1,
+                    "Worker failed to traverse the doorway and rest: " + scene.worker().position() + " home=" + (home != null)
+                    + " bedDistance=" + (home == null ? -1 : scene.worker().distanceToSqr(dev.colony.camera.resources.GroundResources.center(home.bed())))
+                    + " visible=" + (home != null && dev.colony.camera.resources.StorageResources.canTake(Objects.requireNonNull(helper.getLevel()), scene.worker(), home.bed()))
+                    + " reason=" + scene.worker().lifeReason() + " navigation=" + scene.worker().getNavigation().getTargetPos());
             scene.worker().discard();
         });
     }

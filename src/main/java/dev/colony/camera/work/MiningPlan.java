@@ -93,7 +93,8 @@ final class MiningPlan {
         for (int i = 0; i < ordered.size(); i++) {
             WorkerEntity worker = Objects.requireNonNull(ordered.get(i)); slots.put(Objects.requireNonNull(worker.getUUID()), i);
             double toolSpeed = worker.getOffhandItem().getItem() instanceof DiggerItem digger ? digger.getTier().getSpeed() : 1;
-            speeds[i] = Math.max(1, toolSpeed) * dev.colony.camera.worker.WorkerEffects.mining(worker.state(), time);
+            speeds[i] = Math.max(1, toolSpeed) * dev.colony.camera.worker.WorkerEffects.mining(worker.state(), time)
+                    * worker.needs().workSpeed(dev.colony.camera.worker.WorkerEffects.environmentResistance(worker.state()));
         }
         if (ordered.isEmpty()) { Arrays.fill(owners, -1); return; }
         double[] costs = new double[cells.size()];

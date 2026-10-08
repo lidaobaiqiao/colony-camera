@@ -155,7 +155,7 @@ tasks.register('verifyArchitecture') {
         if (hudLayout =~ /(?m)^import\s+(net\.|org\.|com\.)/) {
             throw new GradleException('StrategyHudLayout must remain independent of game APIs')
         }
-        ['preset/BlockPreset', 'planning/ProjectionPlacement', 'client/screen/ProjectionPanelLayout', 'client/screen/BuildPanelLayout', 'client/screen/BuildCatalogFilter', 'client/input/PointerGesture', 'client/screen/WindowGeometry', 'client/planning/BlockDraftState', 'client/work/TechnologyPanelLayout', 'client/work/WorkPanelLayout', 'client/work/CraftingPanelLayout', 'worker/WorkerAttribute', 'worker/WorkerProfile', 'worker/WorkerState', 'worker/WorkerPreferences', 'work/MiningFrontier', 'work/MiningPartition', 'work/MiningProgress', 'resources/ReservationLedger', 'construction/ProjectOrder', 'network/ConstructionPayload'].each { model ->
+        ['preset/BlockPreset', 'planning/ProjectionPlacement', 'client/screen/ProjectionPanelLayout', 'client/screen/BuildPanelLayout', 'client/screen/BuildCatalogFilter', 'client/input/PointerGesture', 'client/screen/WindowGeometry', 'client/planning/BlockDraftState', 'client/work/TechnologyPanelLayout', 'client/work/WorkPanelLayout', 'client/work/CraftingPanelLayout', 'worker/WorkerAttribute', 'worker/WorkerProfile', 'worker/WorkerState', 'worker/WorkerPreferences', 'worker/WorkerNeeds', 'work/MiningFrontier', 'work/MiningPartition', 'work/MiningProgress', 'resources/ReservationLedger', 'construction/ProjectOrder', 'network/ConstructionPayload'].each { model ->
             def text = file("src/main/java/dev/colony/camera/${model}.java").getText('UTF-8')
             if (text =~ /(?m)^import\s+(net\.|org\.|com\.)/) {
                 throw new GradleException("${model} must remain independent of game APIs")
@@ -252,12 +252,13 @@ tasks.register('verifyModJar') {
              'worker/WorkerProfile$Profession', 'worker/WorkerProfile$ProfessionLayer', 'worker/WorkerProfile$Ability',
              'config/WorkerConfig', 'content/AcademyUpgradeItem', 'client/work/WorkerPanel',
              'worker/WorkerPreferences', 'worker/WorkerPreferenceStorage', 'worker/WorkerEquipment', 'worker/ResidenceOrders',
+             'worker/WorkerNeeds', 'worker/WorkerNeedsStorage', 'worker/WorkerSurvival', 'worker/LocalClimate',
              'work/ItemSweepService', 'client/selection/TypeSelection', 'client/screen/RegistryPicker', 'client/work/SweepPanel', 'client/work/ResidencePanel',
              'crafting/CraftingService', 'tech/TechProgress', 'client/work/ColonyWorkClient',
              'client/work/ColonyWorkScreen', 'client/work/WorkPanel', 'client/work/WorkPanelLayout'].each { type ->
                 required.add("dev/colony/camera/${type}.class")
             }
-            ['printing_core', 'warehouse', 'network_controller', 'network_port', 'network_cable', 'colony_workbench', 'research_desk', 'residence', 'academy'].each { block ->
+            ['printing_core', 'warehouse', 'network_controller', 'network_port', 'network_cable', 'colony_workbench', 'research_desk', 'residence', 'academy', 'water_pump', 'meeting_point'].each { block ->
                 required.addAll(["assets/${mod_id}/blockstates/${block}.json", "assets/${mod_id}/models/block/${block}.json",
                                  "assets/${mod_id}/models/item/${block}.json", "data/${mod_id}/loot_tables/blocks/${block}.json",
                                  "data/${mod_id}/recipes/${block}.json"])
@@ -266,7 +267,7 @@ tasks.register('verifyModJar') {
                 required.addAll(["assets/${mod_id}/models/item/${item}.json", "data/${mod_id}/recipes/${item}.json"])
             }
             ['printing_core', 'warehouse', 'network_controller', 'network_port', 'network_cable',
-             'colony_workbench', 'research_desk', 'capacity_upgrade', 'stack_upgrade', 'residence', 'academy', 'academy_upgrade'].each { item ->
+             'colony_workbench', 'research_desk', 'capacity_upgrade', 'stack_upgrade', 'residence', 'academy', 'academy_upgrade', 'water_pump', 'meeting_point'].each { item ->
                 required.add("data/${mod_id}/advancements/recipes/misc/${item}.json")
             }
             required.each { path ->

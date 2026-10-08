@@ -125,7 +125,7 @@ public final class MiningService {
         FakePlayer actor = actor(level, worker, job); ItemStack saved = Objects.requireNonNull(actor.getMainHandItem());
         actor.setItemSlot(EquipmentSlot.MAINHAND, tool);
         try {
-            float rate = (float) (state.getDestroyProgress(actor, level, target) * WorkerEffects.mining(worker.state(), level.getGameTime()));
+            float rate = (float) (state.getDestroyProgress(actor, level, target) * WorkerEffects.mining(worker.state(), level.getGameTime()) * worker.needs().workSpeed(WorkerEffects.environmentResistance(worker.state())));
             return rate > 0 && Float.isFinite(rate) ? Math.max(1, (1 - job.miningProgress().get(index) / 10000.0) / rate) : 1200;
         } finally { actor.setItemSlot(EquipmentSlot.MAINHAND, saved); }
     }
@@ -164,7 +164,7 @@ public final class MiningService {
         ItemStack previous = Objects.requireNonNull(actor.getMainHandItem());
         actor.setItemSlot(EquipmentSlot.MAINHAND, usingTool ? tool : Objects.requireNonNull(ItemStack.EMPTY));
         float perTick;
-        try { perTick = (float) (state.getDestroyProgress(actor, level, target) * WorkerEffects.mining(worker.state(), time)); }
+        try { perTick = (float) (state.getDestroyProgress(actor, level, target) * WorkerEffects.mining(worker.state(), time) * worker.needs().workSpeed(WorkerEffects.environmentResistance(worker.state()))); }
         finally { actor.setItemSlot(EquipmentSlot.MAINHAND, previous); }
         int elapsed = task.lastWorked == 0 ? 1 : (int) Math.min(5, Math.max(0, time - task.lastWorked)); task.lastWorked = time;
         if (perTick <= 0 || Float.isNaN(perTick)) {

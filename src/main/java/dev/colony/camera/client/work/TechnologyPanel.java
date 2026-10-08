@@ -29,7 +29,7 @@ final class TechnologyPanel {
         if (!open) return false;
         if (key == GLFW.GLFW_KEY_ESCAPE) close();
         if (key == GLFW.GLFW_KEY_UP || key == GLFW.GLFW_KEY_LEFT) { selected = Math.max(0, selected - 1); scroll = 0; }
-        if (key == GLFW.GLFW_KEY_DOWN || key == GLFW.GLFW_KEY_RIGHT) { selected = Math.min(3, selected + 1); scroll = 0; }
+        if (key == GLFW.GLFW_KEY_DOWN || key == GLFW.GLFW_KEY_RIGHT) { selected = Math.min(7, selected + 1); scroll = 0; }
         return true;
     }
     boolean click(double x, double y, int button) {
@@ -37,12 +37,12 @@ final class TechnologyPanel {
         if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) return true;
         if (layout.close.contains(x, y)) close();
         if (!layout.usable) return true;
-        for (int i = 0; i < 4; i++) if (layout.node(i).contains(x, y)) { selected = i; scroll = 0; return true; }
+        for (int i = 0; i < 8; i++) if (layout.node(i).contains(x, y)) { selected = i; scroll = 0; return true; }
         if (layout.station.contains(x, y)) {
             var values = ColonyWorkClient.stations().stream().filter(value -> Objects.requireNonNull(value).research()).toList();
             if (!values.isEmpty()) station = values.get((values.indexOf(station) + 1) % values.size());
         }
-        if (layout.research.contains(x, y) && canResearch()) { var current = station; if (current != null) ColonyWorkClient.research(current.pos()); }
+        if (layout.research.contains(x, y) && canResearch()) { var current = station; if (current != null) ColonyWorkClient.research(current.pos(), selected); }
         if (layout.refresh.contains(x, y)) ColonyWorkClient.refresh();
         return true;
     }
@@ -53,8 +53,9 @@ final class TechnologyPanel {
     }
     private boolean canResearch() {
         if (station == null) station = ColonyWorkClient.stations().stream().filter(value -> Objects.requireNonNull(value).research()).findFirst().orElse(null);
-        return selected == ColonyWorkClient.tech().nextTier() && !ColonyWorkClient.tech().readOnly()
-                && station != null && ColonyWorkClient.stations().contains(station) && running() == null && node() != null;
+        var node = node();
+        return node != null && node.available() && !ColonyWorkClient.tech().readOnly()
+                && station != null && ColonyWorkClient.stations().contains(station) && running() == null;
     }
     @Nullable private ColonyWorkClient.Job running() { return ColonyWorkClient.jobs().stream().filter(j -> j.kind().equals("RESEARCH") && !j.cancelled() && !j.finished()).findFirst().orElse(null); }
     @Nullable private ColonyWorkClient.TechNode node() { return ColonyWorkClient.techNodes().stream().filter(n -> n.tier() == selected).findFirst().orElse(null); }
@@ -66,11 +67,10 @@ final class TechnologyPanel {
         lines.add(text("prerequisite", node.requiredTier() < 0 ? text("none") : tier(node.requiredTier())));
         for (var cost : node.costs()) lines.add(Objects.requireNonNull(Component.translatable("colonycamera.work.ingredient", ColonyWorkClient.text(cost.name()), cost.count())));
         lines.add(Objects.requireNonNull(Component.translatable("colonycamera.work.research_duration", node.researchTicks() / 20)));
-        lines.add(text("unlocks", tier(node.tier())));
-        if (node.tier() <= ColonyWorkClient.tech().tier()) lines.add(text("done"));
-        else if (node.tier() != ColonyWorkClient.tech().nextTier()) lines.add(text("locked"));
+        lines.add(ColonyWorkClient.text(node.effect()));
+        lines.add(node.done() ? text("done") : ColonyWorkClient.text(node.reason()));
         var job = running();
-        if (job != null && node.tier() == ColonyWorkClient.tech().nextTier()) {
+        if (job != null && node.running()) {
             lines.add(Objects.requireNonNull(Component.translatable("colonycamera.work.reason." + job.reason())));
             lines.add(Objects.requireNonNull(Component.translatable("colonycamera.work.job_row", job.priority(), job.done(), job.total())));
         }
@@ -86,23 +86,24 @@ final class TechnologyPanel {
         fitted(g, current, text("title"), r.x() + 8, r.y() + 8, r.width() - 36, 0xE8F1F5);
         button(g, current, layout.close, Objects.requireNonNull(Component.literal("×")), true, mx, my);
         if (!layout.usable) { fitted(g, current, Objects.requireNonNull(Component.translatable("colonycamera.work.small_screen")), r.x() + 4, r.y() + 24, r.width() - 8, 0xFFD379); return; }
-        var tech = ColonyWorkClient.tech(); var job = running();
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 8; i++) {
             var cell = layout.node(i);
-            if (i < 3) {
-                var next = layout.node(i + 1);
-                if (layout.horizontal) g.fill(cell.right(), cell.y() + cell.height() / 2, next.x(), cell.y() + cell.height() / 2 + 1, 0xFF334958);
-                else g.fill(cell.x() + 9, cell.bottom(), cell.x() + 10, next.y(), 0xFF334958);
+            int id = i; var item = ColonyWorkClient.techNodes().stream().filter(n -> n.tier() == id).findFirst().orElse(null);
+            if (item != null && item.requiredTier() >= 0 && item.requiredTier() < 8) {
+                var parent = layout.node(item.requiredTier()); int edge = cell.right() + 2;
+                g.fill(parent.right(), parent.y() + parent.height() / 2, edge + 1, parent.y() + parent.height() / 2 + 1, 0xFF334958);
+                g.fill(edge, Math.min(parent.y() + parent.height() / 2, cell.y() + cell.height() / 2), edge + 1, cell.y() + cell.height() / 2 + 1, 0xFF334958);
+                g.fill(cell.right(), cell.y() + cell.height() / 2, edge + 1, cell.y() + cell.height() / 2 + 1, 0xFF334958);
             }
-            boolean done = i <= tech.tier(), available = i == tech.nextTier();
+            boolean done = item != null && item.done(), available = item != null && item.available();
             int ink = done ? 0x67DEC2 : available ? 0xFFD379 : 0x586C79;
             g.fill(cell.x(), cell.y(), cell.right(), cell.bottom(), i == selected ? 0xFF234B4B : cell.contains(mx, my) ? 0xFF263B4B : 0xFF192D39);
             g.fill(cell.x() + 4, cell.y() + 4, cell.x() + 7, cell.y() + 7, 0xFF000000 | ink);
             fitted(g, current, tier(i), cell.x() + 10, cell.y() + 4, cell.width() - 14, ink);
-            if (cell.height() >= 24) fitted(g, current, text(done ? "done" : available && job != null ? "running" : available ? "available" : "locked"), cell.x() + 5, cell.y() + 16, cell.width() - 10, ink);
-            if (available && job != null) {
+            if (cell.height() >= 24) fitted(g, current, text(done ? "done" : item != null && item.running() ? "running" : available ? "available" : "locked"), cell.x() + 5, cell.y() + 16, cell.width() - 10, ink);
+            if (item != null && item.running()) {
                 int w = Math.max(0, cell.width() - 8);
-                g.fill(cell.x() + 4, cell.bottom() - 2, cell.x() + 4 + (int) Math.round(w * StrategyHudLayout.progress(job.done(), job.total())), cell.bottom() - 1, 0xFFFFD379);
+                g.fill(cell.x() + 4, cell.bottom() - 2, cell.x() + 4 + (int) Math.round(w * item.progress()), cell.bottom() - 1, 0xFFFFD379);
             }
         }
         List<Component> lines = details(); int y = layout.detail.y();
@@ -114,13 +115,13 @@ final class TechnologyPanel {
         Component stationLabel = facility == null ? Objects.requireNonNull(Component.translatable("colonycamera.work.need_research_station"))
                 : Objects.requireNonNull(Component.translatable("colonycamera.work.station", Component.translatable("colonycamera.work.research_station"), facility.pos().getX(), facility.pos().getY(), facility.pos().getZ()));
         button(g, current, layout.station, stationLabel, true, mx, my);
-        button(g, current, layout.research, text(job != null ? "running" : "research"), canResearch(), mx, my);
+        button(g, current, layout.research, text(running() != null ? "running" : "research"), canResearch(), mx, my);
         button(g, current, layout.refresh, Objects.requireNonNull(Component.translatable("colonycamera.work.refresh")), true, mx, my);
         if (layout.detail.contains(mx, my) || layout.research.contains(mx, my)) {
             List<net.minecraft.util.FormattedCharSequence> wrapped = new ArrayList<>();
             for (Component line : lines) wrapped.addAll(current.split(Objects.requireNonNull(line), Math.max(1, Math.min(260, width - 24))));
             g.renderTooltip(current, wrapped, mx, my);
-        } else for (int i = 0; i < 4; i++) if (layout.node(i).contains(mx, my)) g.renderTooltip(current, tier(i), mx, my);
+        } else for (int i = 0; i < 8; i++) if (layout.node(i).contains(mx, my)) g.renderTooltip(current, tier(i), mx, my);
     }
     private static void button(GuiGraphics g, Font font, StrategyHudLayout.Rect r, Component caption, boolean enabled, int mx, int my) {
         g.fill(r.x(), r.y(), r.right(), r.bottom(), enabled && r.contains(mx, my) ? 0xFF263B4B : 0xFF192D39);
@@ -131,6 +132,9 @@ final class TechnologyPanel {
         if (font.width(value) > width) value = font.plainSubstrByWidth(value, Math.max(0, width - font.width("…"))) + "…";
         g.drawString(font, value, x, y, ink, false);
     }
-    @Nonnull private static Component tier(int stage) { return Objects.requireNonNull(Component.translatable("colonycamera.work.tier." + stage)); }
+    @Nonnull private static Component tier(int stage) {
+        return Objects.requireNonNull(ColonyWorkClient.techNodes().stream().filter(node -> node.tier() == stage).map(node -> ColonyWorkClient.text(node.name()))
+                .findFirst().orElse(Objects.requireNonNull(Component.translatable("screen.colonycamera.technology.loading"))));
+    }
     @Nonnull private static Component text(String key, Object... args) { return Objects.requireNonNull(Component.translatable("screen.colonycamera.technology." + key, args)); }
 }

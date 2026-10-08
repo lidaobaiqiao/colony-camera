@@ -22,7 +22,7 @@ import javax.annotation.ParametersAreNonnullByDefault;
 /** Compact, scrollable person view. Values and available facilities come exclusively from server snapshots. */
 @ParametersAreNonnullByDefault
 public final class WorkerPanel {
-    private enum Page { OVERVIEW, LEARNING, ORDERS, TASKS, EQUIPMENT, PRINT }
+    private enum Page { OVERVIEW, LEARNING, ORDERS, TASKS, EQUIPMENT, SOCIAL, PRINT }
     @Nonnull private final RegistryPicker equipment = new RegistryPicker();
     private record Row(@Nonnull Component text, @Nullable String action, boolean enabled, double bar) {}
     @Nullable private UUID person, target, undertaking;
@@ -60,7 +60,7 @@ public final class WorkerPanel {
         if (mouseX >= x + width - 24 && mouseX < x + width && mouseY >= y && mouseY < y + 22) { close(); return true; }
         if (width < 160 || height < 100) return true;
         if (page != Page.PRINT && mouseX >= x + 6 && mouseX < x + width - 6 && mouseY >= y + 24 && mouseY < y + 44) {
-            int tab = Math.min(4, (int) ((mouseX - x - 6) * 5 / Math.max(1, width - 12))); page = Objects.requireNonNull(Page.values()[tab]); scroll = 0; return true;
+            int tab = Math.min(5, (int) ((mouseX - x - 6) * 6 / Math.max(1, width - 12))); page = Objects.requireNonNull(Page.values()[tab]); scroll = 0; return true;
         }
         int top = y + 49, bottom = y + height - 22;
         if (mouseX < x + 8 || mouseX >= x + width - 8 || mouseY < top || mouseY >= bottom) return true;
@@ -79,8 +79,8 @@ public final class WorkerPanel {
         draw(graphics, current, text(page == Page.PRINT ? "print_title" : "title", person == null ? "" : person.toString().substring(0, 8)), x + 9, y + 9, width - 42, 0xE8F1F5);
         graphics.drawString(current, "×", x + width - 17, y + 8, 0x90A8B8, false);
         if (width < 160 || height < 100) { draw(graphics, current, Objects.requireNonNull(Component.translatable("colonycamera.work.small_screen")), x + 5, y + 27, width - 10, 0xFFD379); return; }
-        if (page != Page.PRINT) for (int i = 0; i < 5; i++) {
-            int left = x + 6 + (width - 12) * i / 5, right = x + 6 + (width - 12) * (i + 1) / 5;
+        if (page != Page.PRINT) for (int i = 0; i < 6; i++) {
+            int left = x + 6 + (width - 12) * i / 6, right = x + 6 + (width - 12) * (i + 1) / 6;
             graphics.fill(left, y + 24, right - 1, y + 43, page.ordinal() == i ? 0xFF28504C : 0xFF203442);
             draw(graphics, current, text("page." + Objects.requireNonNull(Page.values()[i]).name().toLowerCase(java.util.Locale.ROOT)), left + 4, y + 30, right - left - 8, 0xE8F1F5);
         }
@@ -118,6 +118,11 @@ public final class WorkerPanel {
                 }
                 rows.add(new Row(text("stress", number(state, "stress"), number(state, "loyalty")), null, true, number(state, "stress") / 100));
                 row(text("life", number(state, "health"), number(state, "hunger"), number(state, "rest") * 100));
+                if (state.has("needs")) {
+                    var needs = Objects.requireNonNull(state.getAsJsonObject("needs"));
+                    row(text("needs", number(needs, "hydration"), number(needs, "temperature"), number(needs, "social")));
+                    row(text("need_speed", number(needs, "workSpeed") * 100));
+                }
                 row(text(flag(state, "homeValid") ? "home" : "homeless", state.has("home") ? position(Objects.requireNonNull(BlockPos.of(state.get("home").getAsLong()))) : text("none")));
                 row(text("assign_home"), "home", writable); row(text("growth_rule"));
                 if (state.has("attributes")) for (var entry : state.getAsJsonArray("attributes")) {
@@ -129,6 +134,24 @@ public final class WorkerPanel {
                     JsonObject pressure = Objects.requireNonNull(entry.getAsJsonObject()); row(text("source", label("stresscause", word(pressure, "id", "")), number(pressure, "amount")));
                 }
                 row(text("mined", worker.mined()));
+            } else if (page == Page.SOCIAL) {
+                row(text("social_rule")); row(text("water_rule")); row(text("climate_rule"));
+                row(text("loyalty_care_rule"));
+                if (state.has("needs")) {
+                    var needs = Objects.requireNonNull(state.getAsJsonObject("needs"));
+                    row(text("needs", number(needs, "hydration"), number(needs, "temperature"), number(needs, "social")));
+                    row(text("life_practice", number(needs, "drinks"), number(needs, "meals")));
+                }
+                for (var facility : ColonyWorkClient.facilities()) if (facility.kind().equals("WATER_PUMP") || facility.kind().equals("MEETING_POINT"))
+                    row(text("life_facility", Objects.requireNonNull(Component.translatable("block.colonycamera." + (facility.kind().equals("WATER_PUMP") ? "water_pump" : "meeting_point"))), position(facility.pos()),
+                            Objects.requireNonNull(Component.translatable("colonycamera.life.facility." + word(facility.detail(), "status", "denied")))));
+                row(text("relationships"));
+                if (!state.has("relationships") || state.getAsJsonArray("relationships").isEmpty()) row(text("no_relations"));
+                else for (var entry : state.getAsJsonArray("relationships")) {
+                    var relation = Objects.requireNonNull(entry.getAsJsonObject()); double affinity = number(relation, "affinity");
+                    row(text("relation", word(relation, "name", ""), text("bond." + (affinity >= 60 ? "close" : affinity >= 20 ? "friend" : affinity >= 5 ? "familiar" : "met")), affinity));
+                    row(text("relation_time", number(relation, "seconds"), text(flag(relation, "loaded") ? "relation_nearby" : "relation_unloaded")));
+                }
             } else if (page == Page.LEARNING) {
                 row(text("school", position(school())), "school", !schools().isEmpty());
                 row(text("school_rule")); row(text("profession", label(profession)), "profession", true);

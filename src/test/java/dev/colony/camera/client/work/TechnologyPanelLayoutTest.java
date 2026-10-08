@@ -10,7 +10,13 @@ class TechnologyPanelLayoutTest {
             var l = new TechnologyPanelLayout(size[0], size[1]); assertTrue(l.usable);
             var a = l.tree; var b = l.detail;
             assertFalse(a.x() < b.right() && a.right() > b.x() && a.y() < b.bottom() && a.bottom() > b.y());
-            for (int i = 0; i < 4; i++) assertTrue(l.node(i).right() <= a.right() && l.node(i).bottom() <= a.bottom());
+            for (int i = 0; i < 8; i++) {
+                assertTrue(l.node(i).right() <= a.right() && l.node(i).bottom() <= a.bottom());
+                for (int j = i + 1; j < 8; j++) {
+                    var first = l.node(i); var second = l.node(j);
+                    assertFalse(first.x() < second.right() && first.right() > second.x() && first.y() < second.bottom() && first.bottom() > second.y());
+                }
+            }
             assertTrue(l.detail.bottom() < l.station.y()); assertTrue(l.station.bottom() < l.research.y());
         }
     }

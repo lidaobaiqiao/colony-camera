@@ -2,7 +2,7 @@
 
 **V1 初版 · 1.0.0，2026-10-04。** 镜头、选择和战略 UI 的首个完整开发里程碑已完成。
 
-当前开发版本为 **1.11.0**：加入多类型立体筛选、按物品类型的有限批次清扫、工人真实装备/任务设置及住所详情、名称、指定住户和自动入住。实现与迁移见 [0029](docs/decisions/0029-selection-item-sweep-worker-and-home-settings.md)，验证见 [1.11.0](docs/validation/1.11.0.md)。继续保留 1.10.2 清扫连续性、配方书生产与打印无住房门槛。
+当前开发版本为 **1.12.0**：从实际饮水、住房、进餐和社交推进分支科技，新增取水站与聚会点、局部温度、社交关系及实际供养忠诚收益。实现与迁移见 [0030](docs/decisions/0030-colony-life-and-development.md)，验证见 [1.12.0](docs/validation/1.12.0.md)。保留多类型立体筛选、有限批次物品清扫、真实装备/任务设置和住所配置，打印仍不要求住房。
 
 1.9.0 落实的 [0024 工人状态设计](docs/decisions/0024-worker-state-attributes-professions-stress-loyalty.md) 继续保留：十八项独立属性、兴趣/性格、住所、学堂、职业、压力/罢工、忠诚及特殊指令。经营玩法与迁移见 [初版说明](docs/decisions/0026-worker-state-first-implementation.md)。
 

@@ -20,8 +20,14 @@ public final class WorkerConfig {
     @Nonnull public static final ForgeConfigSpec.DoubleValue HUNGER_PER_TICK = number("life.hungerPerTick", 20.0 / 48000, 0, 0.01);
     @Nonnull public static final ForgeConfigSpec.DoubleValue FATIGUE_PER_TICK = number("life.fatiguePerTick", 1.0 / 48000, 0, 0.001);
     @Nonnull public static final ForgeConfigSpec.DoubleValue STRESS_PER_DAY = number("life.workStressPerDay", 12, 0, 100);
+    @Nonnull public static final ForgeConfigSpec.DoubleValue WATER_PER_TICK = number("life.waterPerTick", 100.0 / 72000, 0, 0.1);
+    @Nonnull public static final ForgeConfigSpec.DoubleValue SOCIAL_PER_TICK = number("life.socialPerTick", 20.0 / 24000, 0, 0.1);
+    @Nonnull public static final ForgeConfigSpec.DoubleValue THIRST_STRESS = number("life.thirstStressPerDay", 8, 0, 100);
+    @Nonnull public static final ForgeConfigSpec.DoubleValue LONELY_STRESS = number("life.lonelyStressPerDay", 4, 0, 100);
+    @Nonnull public static final ForgeConfigSpec.DoubleValue THERMAL_STRESS = number("life.thermalStressPerDegreeDay", 0.5, 0, 10);
     @Nonnull public static final ForgeConfigSpec.DoubleValue RECOVERY_PER_TICK = number("life.recoveryPerTick", 0.02, 0.001, 1);
     @Nonnull public static final ForgeConfigSpec.DoubleValue LOYALTY_IMPROVEMENT = number("loyalty.improvementReward", 2, 0, 20);
+    @Nonnull public static final ForgeConfigSpec.DoubleValue LOYALTY_CARE = number("loyalty.actualCareRewardPerDay", 3, 0, 20);
     @Nonnull public static final ForgeConfigSpec.DoubleValue LOYALTY_CRISIS = number("loyalty.crisisLossPerSecond", 0.01, 0, 10);
     @Nonnull public static final ForgeConfigSpec.DoubleValue ORDER_LOYALTY = number("orders.executionLoyalty", 50, 1, 10000);
     @Nonnull public static final ForgeConfigSpec.DoubleValue SACRIFICE_LOYALTY = number("orders.sacrificeLoyalty", 80, 1, 10000);

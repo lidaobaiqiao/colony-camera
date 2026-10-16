@@ -4,6 +4,8 @@ import dev.colony.camera.client.camera.StrategyCameraController;
 import dev.colony.camera.client.construction.ConstructionClient;
 import dev.colony.camera.network.ConstructionNetwork;
 import dev.colony.camera.client.screen.StrategyHudLayout;
+import dev.colony.camera.client.screen.UiDraw;
+import dev.colony.camera.client.screen.UiTheme;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.core.BlockPos;
@@ -25,10 +27,10 @@ import java.util.UUID;
 @ParametersAreNonnullByDefault
 public final class WorkPanel {
     public enum Tab { TASKS, CRAFT, TECHNOLOGY, PEOPLE, PROJECTS }
-    private enum Action { CLOSE, TASKS, CRAFT, TECHNOLOGY, PEOPLE, PROJECTS, TECH_TREE, PERSON, RESIDENCES, PRINT, MINE, SWEEP, PRIORITY_DOWN, PRIORITY_UP,
+    private enum Action { CLOSE, BACK, DETAILS, TASKS, CRAFT, TECHNOLOGY, PEOPLE, PROJECTS, TECH_TREE, PERSON, RESIDENCES, PRINT, MINE, SWEEP, PRIORITY_DOWN, PRIORITY_UP,
         PAUSE, CANCEL, REFRESH, STATION, COUNT_DOWN, COUNT_UP, QUEUE_CRAFT, QUEUE_RESEARCH }
     private record Control(@Nonnull Action action, @Nonnull StrategyHudLayout.Rect bounds, @Nonnull Component label, boolean enabled) {}
-    private static final int TEXT = 0xE8F1F5, MUTED = 0x90A8B8, ACCENT = 0x67DEC2, GOLD = 0xFFD379;
+    private static final int TEXT = UiTheme.TEXT, MUTED = UiTheme.SECONDARY, GOLD = UiTheme.WARNING;
     private final boolean selectionAvailable;
     private final TechnologyPanel technology = new TechnologyPanel();
     private final WorkerPanel person = new WorkerPanel();
@@ -49,7 +51,8 @@ public final class WorkPanel {
     private int scroll;
     private int amount = 1;
     private int width = 1, height = 1;
-    private boolean open;
+    private boolean open, detailOpen;
+    private int detailScroll, detailLines;
 
     public WorkPanel(boolean selectionAvailable) { this.selectionAvailable = selectionAvailable; }
     public boolean isOpen() { return open; }
@@ -61,6 +64,8 @@ public final class WorkPanel {
     public void open(Tab page) {
         tab = page; selected = scroll = 0; open = true; standalone = false; technology.close(); person.close(); residences.close(); sweeping.close();
         if (page == Tab.CRAFT) crafting.open(craftStation); else crafting.close();
+        if (page == Tab.TECHNOLOGY) { technology.station(chosenStation(true)); technology.open(); }
+        detailOpen = false; detailScroll = 0;
         ColonyWorkClient.refresh(); ConstructionClient.refresh(); rebuild();
     }
     public void openStation(BlockPos pos, boolean research) {
@@ -76,17 +81,20 @@ public final class WorkPanel {
         if (residences.isOpen()) { residences.tick(); return; }
         if (sweeping.isOpen()) { sweeping.tick(); return; }
         person.tick();
+        if (tab == Tab.TECHNOLOGY) { if (!technology.isOpen()) close(); return; }
         if (crafting.isOpen()) { crafting.tick(); if (!crafting.isOpen()) close(); return; }
         rebuild();
     }
-    public boolean blocks(double x, double y) { return open; }
+    public boolean blocks(double x, double y) { return open && (person.isOpen() ? person.blocks(x, y) : true); }
+    public boolean modal() { return open && (!person.isOpen() || person.modal()); }
     public boolean keyPressed(int key, int scan, int modifiers) {
         if (!open) return false;
         if (crafting.isOpen()) { crafting.keyPressed(key, scan, modifiers); if (!crafting.isOpen()) close(); return true; }
         if (residences.keyPressed(key, scan, modifiers) || sweeping.keyPressed(key, scan, modifiers)) return true;
-        if (person.keyPressed(key, scan, modifiers)) return true;
-        if (technology.keyPressed(key, scan, modifiers)) return true;
-        if (key == GLFW.GLFW_KEY_ESCAPE) { close(); return true; }
+        if (person.isOpen()) return person.keyPressed(key, scan, modifiers);
+        if (technology.keyPressed(key, scan, modifiers)) { if (!technology.isOpen() && tab == Tab.TECHNOLOGY) close(); return true; }
+        if (key == GLFW.GLFW_KEY_ESCAPE) { if (layout.compact() && detailOpen) { detailOpen = false; rebuild(); } else close(); return true; }
+        if (layout.compact() && !detailOpen && count() > 0 && (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_RIGHT)) { detailOpen = true; detailScroll = 0; rebuild(); return true; }
         if (layout.usable() && (key == GLFW.GLFW_KEY_DOWN || key == GLFW.GLFW_KEY_UP) && tab != Tab.TECHNOLOGY) {
             choose(Math.max(0, Math.min(count() - 1, selected + (key == GLFW.GLFW_KEY_DOWN ? 1 : -1))));
             revealSelected();
@@ -97,8 +105,8 @@ public final class WorkPanel {
         if (!open) return false;
         if (residences.click(x, y, button) || sweeping.click(x, y, button)) return true;
         if (crafting.isOpen()) { crafting.click(x, y, button); if (!crafting.isOpen()) close(); return true; }
-        if (person.click(x, y, button)) return true;
-        if (technology.click(x, y, button)) return true;
+        if (person.isOpen()) return person.click(x, y, button);
+        if (technology.click(x, y, button)) { if (!technology.isOpen() && tab == Tab.TECHNOLOGY) close(); return true; }
         if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) return true;
         rebuild();
         for (Control control : List.copyOf(controls)) {
@@ -106,7 +114,7 @@ public final class WorkPanel {
         }
         if (tab != Tab.TECHNOLOGY && layout.list().contains(x, y)) {
             int row = layout.rowAt(x, y);
-            if (row >= 0 && row + scroll < count()) choose(row + scroll);
+            if (row >= 0 && row + scroll < count()) { choose(row + scroll); detailScroll = 0; if (layout.compact()) { detailOpen = true; rebuild(); } }
         }
         return true;
     }
@@ -114,11 +122,12 @@ public final class WorkPanel {
         if (!open) return false;
         if (residences.scroll(delta) || sweeping.scroll(delta)) return true;
         if (crafting.isOpen()) return crafting.scroll(delta);
-        if (person.scroll(delta)) return true;
+        if (person.isOpen()) return person.blocks(x, y) && person.scroll(delta);
         if (technology.scroll(x, y, delta)) return true;
         if (Double.isFinite(delta) && layout.list().contains(x, y) && tab != Tab.TECHNOLOGY) {
             scroll = Math.max(0, Math.min(Math.max(0, count() - layout.rows()), scroll - (int) Math.signum(delta)));
         }
+        if (Double.isFinite(delta) && layout.showDetail() && layout.detail().contains(x, y)) detailScroll = Math.max(0, Math.min(Math.max(0, detailLines - layout.detail().height() / 12), detailScroll - (int) Math.signum(delta)));
         return true;
     }
 
@@ -131,9 +140,9 @@ public final class WorkPanel {
         if (person.isOpen()) { person.render(graphics, mouseX, mouseY); return; }
         if (technology.isOpen()) { technology.render(graphics, mouseX, mouseY); return; }
         rebuild();
-        graphics.fill(0, 0, width, height, 0x60071019);
+        graphics.fill(0, 0, width, height, UiTheme.SCRIM);
         var bounds = layout.bounds(); panel(graphics, bounds);
-        if (bounds.width() >= 55 && bounds.height() >= 18) fitted(graphics, currentFont, text("title"), bounds.x() + 9, bounds.y() + 8, bounds.width() - 40, TEXT);
+        if (bounds.width() >= 55 && bounds.height() >= 18) fitted(graphics, currentFont, text("title"), bounds.x() + (layout.compact() && detailOpen ? 47 : 9), bounds.y() + 7, bounds.width() - (layout.compact() && detailOpen ? 75 : 40), TEXT);
         if (!layout.usable()) {
             if (bounds.height() >= 40) fitted(graphics, currentFont, text("small_screen"), bounds.x() + 5, bounds.y() + 25, bounds.width() - 10, GOLD);
         } else {
@@ -152,9 +161,7 @@ public final class WorkPanel {
                     || control.action() == Action.CRAFT && tab == Tab.CRAFT
                     || control.action() == Action.TECHNOLOGY && tab == Tab.TECHNOLOGY
                     || control.action() == Action.PEOPLE && tab == Tab.PEOPLE || control.action() == Action.PROJECTS && tab == Tab.PROJECTS;
-            graphics.fill(rect.x(), rect.y(), rect.right(), rect.bottom(), active ? 0xFF234B4B : hover && control.enabled() ? 0xFF263B4B : 0xFF192D39);
-            fitted(graphics, currentFont, control.label(), rect.x() + 5, rect.y() + Math.max(1, (rect.height() - 9) / 2), rect.width() - 10,
-                    !control.enabled() ? 0x586C79 : active ? ACCENT : TEXT);
+            UiDraw.button(graphics, currentFont, rect, control.label(), control.enabled(), active, hover);
         }
         List<Component> tooltip = tooltip(mouseX, mouseY);
         if (!tooltip.isEmpty()) {
@@ -174,7 +181,7 @@ public final class WorkPanel {
         if (jobs.isEmpty()) fitted(graphics, currentFont, text("jobs_empty"), layout.list().x() + 4, layout.list().y() + 4, layout.list().width() - 8, MUTED);
         for (int row = 0; row < layout.rows() && row + scroll < jobs.size(); row++) {
             var rect = layout.row(row); var job = Objects.requireNonNull(jobs.get(row + scroll));
-            if (row + scroll == selected) graphics.fill(rect.x(), rect.y(), rect.right(), rect.bottom(), 0xFF234B4B);
+            if (row + scroll == selected) graphics.fill(rect.x(), rect.y(), rect.right(), rect.bottom(), UiTheme.SELECTED);
             fitted(graphics, currentFont, jobTitle(job), rect.x() + 4, rect.y() + 2, rect.width() - 8, TEXT);
             fitted(graphics, currentFont, text("job_row", job.priority(), job.done(), job.total()), rect.x() + 4, rect.y() + 12, rect.width() - 8, MUTED);
             progress(graphics, rect, job.done(), job.total());
@@ -195,7 +202,7 @@ public final class WorkPanel {
         if (recipes.isEmpty()) fitted(graphics, currentFont, text("recipes_empty"), layout.list().x() + 4, layout.list().y() + 4, layout.list().width() - 8, MUTED);
         for (int row = 0; row < layout.rows() && row + scroll < recipes.size(); row++) {
             var rect = layout.row(row); var recipe = Objects.requireNonNull(recipes.get(row + scroll));
-            if (row + scroll == selected) graphics.fill(rect.x(), rect.y(), rect.right(), rect.bottom(), 0xFF234B4B);
+            if (row + scroll == selected) graphics.fill(rect.x(), rect.y(), rect.right(), rect.bottom(), UiTheme.SELECTED);
             fitted(graphics, currentFont, recipeTitle(recipe), rect.x() + 4, rect.y() + 2, rect.width() - 8, recipe.unlocked() ? TEXT : MUTED);
             fitted(graphics, currentFont, recipe.unlocked() ? text("output", recipe.count()) : text("locked_tier", tierName(recipe.requiredTier())),
                     rect.x() + 4, rect.y() + 12, rect.width() - 8, recipe.unlocked() ? MUTED : GOLD);
@@ -227,19 +234,24 @@ public final class WorkPanel {
         }
     }
     private void drawDetails(GuiGraphics graphics, Font currentFont, List<Component> lines) {
-        var detail = layout.detail(); int y = detail.y() + 3;
-        for (Component line : lines) {
-            if (y + 9 > detail.bottom()) break;
-            fitted(graphics, currentFont, Objects.requireNonNull(line), detail.x(), y, detail.width(), TEXT); y += 13;
-        }
+        if (!layout.showDetail()) return;
+        var detail = layout.detail(); List<FormattedCharSequence> wrapped = new ArrayList<>();
+        for (Component line : lines) wrapped.addAll(currentFont.split(Objects.requireNonNull(line), Math.max(1, detail.width() - 4)));
+        detailLines = wrapped.size(); int visible = detail.height() / 12;
+        detailScroll = Math.max(0, Math.min(detailScroll, Math.max(0, detailLines - visible)));
+        graphics.enableScissor(detail.x(), detail.y(), detail.right(), detail.bottom());
+        for (int i = detailScroll; i < wrapped.size() && i - detailScroll < visible; i++)
+            graphics.drawString(currentFont, Objects.requireNonNull(wrapped.get(i)), detail.x() + 2, detail.y() + (i - detailScroll) * 12, TEXT, false);
+        graphics.disableScissor();
     }
 
     private void rebuild() {
         controls.clear(); if (!open) return;
         int desired = tab == Tab.TECHNOLOGY ? 214 : Math.min(300, 118 + Math.max(3, Math.min(6, count())) * WorkPanelLayout.ROW_HEIGHT);
-        layout = new WorkPanelLayout(width, height, desired);
+        layout = new WorkPanelLayout(width, height, desired, detailOpen);
         add(Action.CLOSE, layout.close(), Objects.requireNonNull(Component.literal("×")), true);
         if (!layout.usable()) return;
+        if (layout.compact() && detailOpen) add(Action.BACK, layout.back(), Objects.requireNonNull(Component.translatable("colonycamera.ui.back")), true);
         add(Action.TASKS, layout.tab(0), text("tasks_tab"), true); add(Action.CRAFT, layout.tab(1), text("craft_tab"), true);
         add(Action.TECHNOLOGY, layout.tab(2), text("technology_tab"), true);
         add(Action.PEOPLE, layout.tab(3), text("people_tab"), true); add(Action.PROJECTS, layout.tab(4), text("projects_tab"), true);
@@ -302,11 +314,18 @@ public final class WorkPanel {
                 add(Action.CANCEL, layout.action(3, 4), text(running ? "cancel" : "remove"), project != null);
             }
         }
+        if (layout.compact() && !detailOpen && tab != Tab.TECHNOLOGY) {
+            controls.removeIf(control -> switch (control.action()) { case CLOSE, TASKS, CRAFT, TECHNOLOGY, PEOPLE, PROJECTS -> false; default -> true; });
+            add(Action.DETAILS, layout.action(0, 2), Objects.requireNonNull(Component.translatable("colonycamera.ui.details")), count() > 0);
+            add(Action.REFRESH, layout.action(1, 2), text("refresh"), true);
+        }
     }
     private void run(Action action) {
         var job = chosenJob();
         switch (action) {
             case CLOSE -> close();
+            case BACK -> { detailOpen = false; detailScroll = 0; }
+            case DETAILS -> { detailOpen = true; detailScroll = 0; }
             case TASKS, CRAFT, TECHNOLOGY, PEOPLE, PROJECTS -> { var page = Objects.requireNonNull(Tab.valueOf(Objects.requireNonNull(action.name()))); if (tab != page) open(page); }
             case MINE -> ColonyWorkClient.mine();
             case SWEEP -> sweeping.open();
@@ -354,7 +373,7 @@ public final class WorkPanel {
         if (tab == Tab.PROJECTS && count() > 0) choose(selected);
     }
     private void revealSelected() {
-        if (!layout.usable()) return;
+        if (!layout.usable() || layout.rows() == 0) return;
         if (selected < scroll) scroll = selected;
         if (selected >= scroll + layout.rows()) scroll = selected - layout.rows() + 1;
     }
@@ -440,7 +459,7 @@ public final class WorkPanel {
         if (people.isEmpty()) fitted(g, current, text("people_empty"), layout.list().x() + 4, layout.list().y() + 4, layout.list().width() - 8, MUTED);
         for (int row = 0; row < layout.rows() && row + scroll < people.size(); row++) {
             var person = people.get(row + scroll); var r = layout.row(row);
-            if (row + scroll == selected) g.fill(r.x(), r.y(), r.right(), r.bottom(), 0xFF234B4B);
+            if (row + scroll == selected) g.fill(r.x(), r.y(), r.right(), r.bottom(), UiTheme.SELECTED);
             fitted(g, current, text("person_id", person.id().toString().substring(0, 8)), r.x() + 4, r.y() + 2, r.width() - 8, TEXT);
             fitted(g, current, text("person_points", person.miningLevel(), person.mined()), r.x() + 4, r.y() + 13, r.width() - 8, MUTED);
         }
@@ -451,7 +470,7 @@ public final class WorkPanel {
         if (projects.isEmpty()) fitted(g, current, text("projects_empty"), layout.list().x() + 4, layout.list().y() + 4, layout.list().width() - 8, MUTED);
         for (int row = 0; row < layout.rows() && row + scroll < projects.size(); row++) {
             var project = projects.get(row + scroll); var r = layout.row(row);
-            if (row + scroll == selected) g.fill(r.x(), r.y(), r.right(), r.bottom(), 0xFF234B4B);
+            if (row + scroll == selected) g.fill(r.x(), r.y(), r.right(), r.bottom(), UiTheme.SELECTED);
             fitted(g, current, ColonyWorkClient.text(project.name()), r.x() + 4, r.y() + 2, r.width() - 8, TEXT);
             fitted(g, current, text("job_row", project.priority(), project.completed(), project.total()), r.x() + 4, r.y() + 12, r.width() - 8, MUTED);
             progress(g, r, project.completed(), project.total());
@@ -477,8 +496,8 @@ public final class WorkPanel {
                 text("sequence", project.sequence()), text("project_material", itemName(project.neededItem()), project.neededCount())));
     }
     private static void progress(GuiGraphics g, StrategyHudLayout.Rect r, int done, int total) {
-        int w = Math.max(0, r.width() - 8); g.fill(r.x() + 4, r.bottom() - 3, r.x() + 4 + w, r.bottom() - 1, 0xFF334958);
-        g.fill(r.x() + 4, r.bottom() - 3, r.x() + 4 + (int) Math.round(w * StrategyHudLayout.progress(done, total)), r.bottom() - 1, 0xFF67DEC2);
+        int w = Math.max(0, r.width() - 8); g.fill(r.x() + 4, r.bottom() - 3, r.x() + 4 + w, r.bottom() - 1, UiTheme.BORDER);
+        g.fill(r.x() + 4, r.bottom() - 3, r.x() + 4 + (int) Math.round(w * StrategyHudLayout.progress(done, total)), r.bottom() - 1, UiTheme.ACCENT);
     }
     @Nonnull private static Component jobTitle(ColonyWorkClient.Job job) {
         Component name = job.name().isBlank() ? text("kind." + job.kind().toLowerCase(java.util.Locale.ROOT)) : ColonyWorkClient.text(job.name());
@@ -504,9 +523,5 @@ public final class WorkPanel {
         if (font.width(label) > available) label = font.plainSubstrByWidth(label, Math.max(0, available - font.width("…"))) + "…";
         graphics.drawString(font, Objects.requireNonNull(label), x, y, color, false);
     }
-    private static void panel(GuiGraphics graphics, StrategyHudLayout.Rect bounds) {
-        if (bounds.width() < 2 || bounds.height() < 2) return;
-        graphics.fill(bounds.x(), bounds.y(), bounds.right(), bounds.bottom(), 0xFF334958);
-        graphics.fill(bounds.x() + 1, bounds.y() + 1, bounds.right() - 1, bounds.bottom() - 1, 0xF0101C28);
-    }
+    private static void panel(GuiGraphics graphics, StrategyHudLayout.Rect bounds) { UiDraw.panel(graphics, bounds); }
 }

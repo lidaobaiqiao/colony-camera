@@ -117,28 +117,28 @@ public final class RegistryPicker {
     }
     public void render(GuiGraphics graphics, int mx, int my) {
         Font current = font; if (!open || current == null) return; filter();
-        graphics.fill(x, y, x + width, y + height, 0xFF182D39); graphics.fill(x, y, x + width, y + 2, 0xFF67DEC2);
-        draw(graphics, current, text(title), x + 8, y + 10, width - 35, 0xE8F1F5); graphics.drawString(current, "×", x + width - 17, y + 9, 0x90A8B8, false);
-        if (width < 180 || height < 140) { draw(graphics, current, text("small"), x + 8, y + 30, width - 16, 0xFFD379); return; }
+        graphics.fill(x, y, x + width, y + height, 0xFF182D39); graphics.fill(x, y, x + width, y + 2, UiTheme.ACCENT);
+        draw(graphics, current, text(title), x + 8, y + 10, width - 35, UiTheme.TEXT); graphics.drawString(current, "×", x + width - 17, y + 9, UiTheme.SECONDARY, false);
+        if (width < 180 || height < 140) { draw(graphics, current, text("small"), x + 8, y + 30, width - 16, UiTheme.WARNING); return; }
         EditBox field = search; if (field != null) field.render(graphics, mx, my, 0);
         Entry hovered = null;
         for (int cell = 0; cell < capacity() && page * capacity() + cell < visible.size(); cell++) {
             Entry entry = Objects.requireNonNull(visible.get(page * capacity() + cell)); int left = x + 8 + cell % columns() * 26, top = y + 58 + cell / columns() * 26;
             boolean hover = mx >= left && mx < left + 25 && my >= top && my < top + 25;
             graphics.fill(left, top, left + 25, top + 25, selected.contains(entry.id()) ? 0xFF347667 : hover ? 0xFF3B5060 : 0xFF263D4C);
-            graphics.renderItem(entry.icon(), left + 4, top + 4); if (selected.contains(entry.id())) graphics.drawString(current, "✓", left + 16, top + 16, 0x67DEC2, false);
+            graphics.renderItem(entry.icon(), left + 4, top + 4); if (selected.contains(entry.id())) graphics.drawString(current, "✓", left + 16, top + 16, UiTheme.ACCENT, false);
             if (hover) hovered = entry;
         }
-        draw(graphics, current, text(onPick == null ? selected.isEmpty() && !requireSelection ? "all" : "count" : "inventory", selected.size(), TypeSelection.MAX_TYPES), x + 8, y + height - 40, width - 16, 0x90A8B8);
+        draw(graphics, current, text(onPick == null ? selected.isEmpty() && !requireSelection ? "all" : "count" : "inventory", selected.size(), TypeSelection.MAX_TYPES), x + 8, y + height - 40, width - 16, UiTheme.SECONDARY);
         button(graphics, current, text("clear"), x + 8, y + height - 26, 49, onPick == null);
         button(graphics, current, Objects.requireNonNull(Component.literal("‹")), x + 63, y + height - 26, 24, page > 0);
         button(graphics, current, Objects.requireNonNull(Component.literal("›")), x + 92, y + height - 26, 24, page + 1 < pages());
-        draw(graphics, current, Objects.requireNonNull(Component.literal((page + 1) + "/" + pages())), x + 121, y + height - 20, Math.max(1, width - 205), 0x90A8B8);
+        draw(graphics, current, Objects.requireNonNull(Component.literal((page + 1) + "/" + pages())), x + 121, y + height - 20, Math.max(1, width - 205), UiTheme.SECONDARY);
         button(graphics, current, text("apply"), x + width - 76, y + height - 26, 68, onApply != null && (!requireSelection || !selected.isEmpty()));
         if (hovered != null) graphics.renderTooltip(current, Objects.requireNonNull(List.of(hovered.name(), Objects.requireNonNull(Component.literal(hovered.id())))), Objects.requireNonNull(java.util.Optional.empty()), mx, my);
     }
     private static void button(GuiGraphics graphics, Font font, Component label, int x, int y, int width, boolean enabled) {
-        graphics.fill(x, y, x + width, y + 20, enabled ? 0xFF28564E : 0xFF243844); draw(graphics, font, label, x + 4, y + 6, width - 8, enabled ? 0xE8F1F5 : 0x617B8D);
+        graphics.fill(x, y, x + width, y + 20, enabled ? 0xFF28564E : 0xFF243844); draw(graphics, font, label, x + 4, y + 6, width - 8, enabled ? UiTheme.TEXT : 0x617B8D);
     }
     private static void draw(GuiGraphics graphics, Font font, Component value, int x, int y, int width, int colour) {
         if (width > 0) graphics.drawString(font, Objects.requireNonNull(font.plainSubstrByWidth(Objects.requireNonNull(value.getString()), width)), x, y, colour, false);

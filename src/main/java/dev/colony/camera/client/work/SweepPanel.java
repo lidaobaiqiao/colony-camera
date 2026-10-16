@@ -1,5 +1,7 @@
 package dev.colony.camera.client.work;
 
+import dev.colony.camera.client.screen.UiTheme;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import dev.colony.camera.client.camera.StrategyCameraController;
@@ -44,11 +46,11 @@ public final class SweepPanel {
     public void render(GuiGraphics g, int mx, int my) {
         Font current = font; if (!open || current == null) return;
         if (picker.isOpen()) { picker.render(g, mx, my); return; }
-        g.fill(x, y, x + width, y + height, 0xFF182D39); g.fill(x, y, x + width, y + 2, 0xFF67DEC2);
-        draw(g, current, text("title"), x + 8, y + 10, width - 40, 0xE8F1F5); g.drawString(current, "×", x + width - 17, y + 9, 0x90A8B8, false);
+        g.fill(x, y, x + width, y + height, 0xFF182D39); g.fill(x, y, x + width, y + 2, UiTheme.ACCENT);
+        draw(g, current, text("title"), x + 8, y + 10, width - 40, UiTheme.TEXT); g.drawString(current, "×", x + width - 17, y + 9, UiTheme.SECONDARY, false);
         if (width < 180 || height < 115) return;
-        for (int row = 0; row < 2; row++) { int top = y + 33 + row * 30; boolean enabled = row == 1 || selected(); g.fill(x + 8, top, x + width - 8, top + 24, enabled ? 0xFF28564E : 0xFF263844); draw(g, current, text(row == 0 ? "surface" : "items"), x + 14, top + 8, width - 28, enabled ? 0xE8F1F5 : 0x617B8D); }
-        draw(g, current, text("scope"), x + 8, y + 99, width - 16, 0x90A8B8);
+        for (int row = 0; row < 2; row++) { int top = y + 33 + row * 30; boolean enabled = row == 1 || selected(); g.fill(x + 8, top, x + width - 8, top + 24, enabled ? 0xFF28564E : 0xFF263844); draw(g, current, text(row == 0 ? "surface" : "items"), x + 14, top + 8, width - 28, enabled ? UiTheme.TEXT : 0x617B8D); }
+        draw(g, current, text("scope"), x + 8, y + 99, width - 16, UiTheme.SECONDARY);
     }
     private static void draw(GuiGraphics g, Font font, Component value, int x, int y, int width, int color) { if (width > 0) g.drawString(font, Objects.requireNonNull(font.plainSubstrByWidth(Objects.requireNonNull(value.getString()), width)), x, y, color, false); }
     @Nonnull private static Component text(String key) { return Objects.requireNonNull(Component.translatable("colonycamera.sweep.ui." + key)); }

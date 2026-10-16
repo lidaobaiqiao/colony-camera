@@ -9,6 +9,13 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 class WorkPanelLayoutTest {
+    @Test void compactListsDisplayAtLeastThreeRowsAndDetailCannotSelectHiddenRows() {
+        var list=new WorkPanelLayout(320,180,250,false);var detail=new WorkPanelLayout(320,180,250,true);
+        assertTrue(list.rows()>=3);assertTrue(list.showList());assertFalse(list.showDetail());
+        assertTrue(detail.showDetail());assertFalse(detail.showList());assertEquals(0,detail.rows());
+        assertEquals(-1,detail.rowAt(list.row(0).x()+1,list.row(0).y()+1));
+        assertTrue(detail.detail().width()>280);assertTrue(detail.back().right()<detail.close().x());
+    }
     @Test void normalScalesKeepInteractiveRegionsInsideAndSeparate() {
         for (int[] viewport : new int[][] {{320, 180}, {480, 270}, {640, 360}, {1920, 1080}}) {
             var layout = new WorkPanelLayout(viewport[0], viewport[1]); assertTrue(layout.usable()); assertTrue(layout.rows() > 0);

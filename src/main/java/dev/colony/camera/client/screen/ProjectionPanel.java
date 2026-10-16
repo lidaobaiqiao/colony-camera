@@ -140,24 +140,24 @@ final class ProjectionPanel {
             var bounds = modalBounds();
             StrategyHud.panel(graphics, bounds);
             fitted(graphics, currentFont, text(mode == Mode.LIBRARY ? "library" : mode == Mode.SAVE ? "save_title" : mode == Mode.RENAME ? "rename_title" : "delete_title"),
-                    bounds.x() + 12, bounds.y() + 8, bounds.width() - 48, 0xE8F1F5);
+                    bounds.x() + 12, bounds.y() + 8, bounds.width() - 48, UiTheme.TEXT);
             if (mode == Mode.LIBRARY) renderLibrary(graphics, currentFont, bounds);
             else renderDialog(graphics, currentFont, bounds, mouseX, mouseY, partialTick);
-            if (!constructionTab || mode != Mode.LIBRARY) fitted(graphics, currentFont, controller.status(), bounds.x() + 10, bounds.bottom() - 13, bounds.width() - 20, 0xFFD379);
+            if (!constructionTab || mode != Mode.LIBRARY) fitted(graphics, currentFont, controller.status(), bounds.x() + 10, bounds.bottom() - 13, bounds.width() - 20, UiTheme.WARNING);
         } else if (controller.draft() != null && !controller.blockDraft()) {
             var bounds = draftBounds();
             StrategyHud.panel(graphics, bounds);
             ProjectionPlacement draft = Objects.requireNonNull(controller.draft());
-            fitted(graphics, currentFont, text("draft", draft.preset().name()), bounds.x() + 7, bounds.y() + 4, bounds.width() - 14, 0x67DEC2);
+            fitted(graphics, currentFont, text("draft", draft.preset().name()), bounds.x() + 7, bounds.y() + 4, bounds.width() - 14, UiTheme.ACCENT);
             if (bounds.height() >= 108) {
-                fitted(graphics, currentFont, text("coordinates", draft.x(), draft.y(), draft.z()), bounds.x() + 7, bounds.y() + 18, bounds.width() - 14, 0xE8F1F5);
+                fitted(graphics, currentFont, text("coordinates", draft.x(), draft.y(), draft.z()), bounds.x() + 7, bounds.y() + 18, bounds.width() - 14, UiTheme.TEXT);
                 fitted(graphics, currentFont, text("orientation", draft.quarterTurns() * 90, text(draft.mirrored() ? "yes" : "no")),
-                        bounds.x() + 7, bounds.y() + 31, bounds.width() - 14, 0x90A8B8);
+                        bounds.x() + 7, bounds.y() + 31, bounds.width() - 14, UiTheme.SECONDARY);
                 if (bounds.height() >= 124) {
                     var stats = ProjectionRenderer.statistics();
-                    fitted(graphics, currentFont, text(stats.complete() ? "stats" : "stats_scanning", stats.missing(), stats.matching(), stats.conflicting()), bounds.x() + 7, bounds.y() + 44, bounds.width() - 14, 0xFFD379);
+                    fitted(graphics, currentFont, text(stats.complete() ? "stats" : "stats_scanning", stats.missing(), stats.matching(), stats.conflicting()), bounds.x() + 7, bounds.y() + 44, bounds.width() - 14, UiTheme.WARNING);
                 }
-                if (bounds.height() >= 160) fitted(graphics, currentFont, text(controller.following() ? "following" : "pinned"), bounds.x() + 7, bounds.y() + 58, bounds.width() - 14, 0x90A8B8);
+                if (bounds.height() >= 160) fitted(graphics, currentFont, text(controller.following() ? "following" : "pinned"), bounds.x() + 7, bounds.y() + 58, bounds.width() - 14, UiTheme.SECONDARY);
             }
         }
         for (Control control : controls) {
@@ -165,7 +165,7 @@ final class ProjectionPanel {
             boolean hover = control.enabled() && bounds.contains(mouseX, mouseY);
             boolean active = control.action() == Action.PRESETS && !projectsTab && !constructionTab || control.action() == Action.PROJECTIONS && projectsTab || control.action() == Action.ENGINEERING && constructionTab;
             graphics.fill(bounds.x(), bounds.y(), bounds.right(), bounds.bottom(), hover ? 0xFF315667 : active ? 0xFF23534F : 0xFF233B49);
-            int color = control.enabled() ? control.action() == Action.CONFIRM || control.action() == Action.ACCEPT ? 0x67DEC2 : 0xE8F1F5 : 0x627684;
+            int color = control.enabled() ? control.action() == Action.CONFIRM || control.action() == Action.ACCEPT ? UiTheme.ACCENT : UiTheme.TEXT : 0x627684;
             fitted(graphics, currentFont, Objects.requireNonNull(control.label()), bounds.x() + 4, bounds.y() + Math.max(2, (bounds.height() - 8) / 2), bounds.width() - 8, color);
         }
     }
@@ -175,22 +175,22 @@ final class ProjectionPanel {
         int listWidth = listWidth(bounds);
         graphics.fill(bounds.x() + 8, bounds.y() + 43, bounds.x() + 8 + listWidth, bounds.bottom() - 43, 0x80101A24);
         int total = count();
-        if (total == 0) fitted(graphics, currentFont, text(projectsTab ? "empty_projects" : "empty_library"), bounds.x() + 12, bounds.y() + 50, listWidth - 8, 0x90A8B8);
+        if (total == 0) fitted(graphics, currentFont, text(projectsTab ? "empty_projects" : "empty_library"), bounds.x() + 12, bounds.y() + 50, listWidth - 8, UiTheme.SECONDARY);
         for (int row = 0; row < visibleRows() && row + scroll < total; row++) {
             int index = row + scroll;
             int y = bounds.y() + 44 + row * 27;
-            if (index == selected) graphics.fill(bounds.x() + 8, y, bounds.x() + 8 + listWidth, y + 25, 0xFF234B4B);
+            if (index == selected) graphics.fill(bounds.x() + 8, y, bounds.x() + 8 + listWidth, y + 25, UiTheme.SELECTED);
             var preset = projectsTab ? controller.placements().get(index).preset() : controller.presets().get(index);
-            fitted(graphics, currentFont, Objects.requireNonNull(Component.literal(preset.name())), bounds.x() + 13, y + 3, listWidth - 10, 0xE8F1F5);
+            fitted(graphics, currentFont, Objects.requireNonNull(Component.literal(preset.name())), bounds.x() + 13, y + 3, listWidth - 10, UiTheme.TEXT);
             Component detail = projectsTab ? text("coordinates", controller.placements().get(index).x(), controller.placements().get(index).y(), controller.placements().get(index).z())
                     : text("dimensions", preset.sizeX(), preset.sizeY(), preset.sizeZ(), preset.blocks().size());
-            fitted(graphics, currentFont, detail, bounds.x() + 13, y + 15, listWidth - 10, 0x90A8B8);
+            fitted(graphics, currentFont, detail, bounds.x() + 13, y + 15, listWidth - 10, UiTheme.SECONDARY);
         }
         BlockPreset preset = chosenPreset();
         if (preset == null) return;
         int x = bounds.x() + listWidth + 20;
         int available = bounds.right() - x - 10;
-        fitted(graphics, currentFont, text("block_list"), x, bounds.y() + 46, available, 0x67DEC2);
+        fitted(graphics, currentFont, text("block_list"), x, bounds.y() + 46, available, UiTheme.ACCENT);
         if (listedPreset != preset) {
             Map<String, Long> counts = preset.blocks().stream().map(cell -> cell.state().block())
                     .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
@@ -205,51 +205,51 @@ final class ProjectionPanel {
             var resource = net.minecraft.resources.ResourceLocation.tryParse(id);
             Component label = resource != null && net.minecraftforge.registries.ForgeRegistries.BLOCKS.containsKey(resource)
                     ? Objects.requireNonNull(net.minecraftforge.registries.ForgeRegistries.BLOCKS.getValue(resource)).getName() : Component.literal(id);
-            fitted(graphics, currentFont, text("block_count", label, entry.getValue()), x, y, available, 0xE8F1F5);
+            fitted(graphics, currentFont, text("block_count", label, entry.getValue()), x, y, available, UiTheme.TEXT);
             y += 12;
         }
-        fitted(graphics, currentFont, text("scope_short"), x, bounds.bottom() - 57, available, 0x90A8B8);
+        fitted(graphics, currentFont, text("scope_short"), x, bounds.bottom() - 57, available, UiTheme.SECONDARY);
     }
 
     private void renderConstruction(GuiGraphics graphics, Font currentFont, StrategyHudLayout.Rect bounds) {
         int listWidth = listWidth(bounds);
         var jobs = ConstructionClient.projects();
-        if (jobs.isEmpty()) fitted(graphics, currentFont, constructionText("empty"), bounds.x() + 12, bounds.y() + 50, listWidth - 8, 0x90A8B8);
+        if (jobs.isEmpty()) fitted(graphics, currentFont, constructionText("empty"), bounds.x() + 12, bounds.y() + 50, listWidth - 8, UiTheme.SECONDARY);
         for (int row = 0; row < visibleRows() && row + scroll < jobs.size(); row++) {
             int index = row + scroll; int y = bounds.y() + 44 + row * 27;
-            if (index == selected) graphics.fill(bounds.x() + 8, y, bounds.x() + 8 + listWidth, y + 25, 0xFF234B4B);
+            if (index == selected) graphics.fill(bounds.x() + 8, y, bounds.x() + 8 + listWidth, y + 25, UiTheme.SELECTED);
             var job = jobs.get(index);
-            fitted(graphics, currentFont, Objects.requireNonNull(job.palettePlan() == null ? Component.literal(job.name()) : Component.translatable(job.name())), bounds.x() + 13, y + 3, listWidth - 10, 0xE8F1F5);
-            fitted(graphics, currentFont, constructionText("row", job.priority(), job.completed(), job.total()), bounds.x() + 13, y + 15, listWidth - 10, 0x90A8B8);
+            fitted(graphics, currentFont, Objects.requireNonNull(job.palettePlan() == null ? Component.literal(job.name()) : Component.translatable(job.name())), bounds.x() + 13, y + 3, listWidth - 10, UiTheme.TEXT);
+            fitted(graphics, currentFont, constructionText("row", job.priority(), job.completed(), job.total()), bounds.x() + 13, y + 15, listWidth - 10, UiTheme.SECONDARY);
         }
         int x = bounds.x() + listWidth + 20; int available = bounds.right() - x - 10;
-        fitted(graphics, currentFont, constructionText("worker_total", ConstructionClient.workers()), x, bounds.y() + 46, available, 0x67DEC2);
+        fitted(graphics, currentFont, constructionText("worker_total", ConstructionClient.workers()), x, bounds.y() + 46, available, UiTheme.ACCENT);
         var job = chosenJob();
-        if (job == null && ConstructionClient.cores() == 0) fitted(graphics, currentFont, constructionText("need_core"), x, bounds.y() + 62, available, 0xFFD379);
+        if (job == null && ConstructionClient.cores() == 0) fitted(graphics, currentFont, constructionText("need_core"), x, bounds.y() + 62, available, UiTheme.WARNING);
         if (job != null) {
-            fitted(graphics, currentFont, constructionText("reason." + job.reason()), x, bounds.y() + 62, available, 0xFFD379);
+            fitted(graphics, currentFont, constructionText("reason." + job.reason()), x, bounds.y() + 62, available, UiTheme.WARNING);
             if (bounds.height() >= 185) {
-                fitted(graphics, currentFont, constructionText("assigned", job.workers()), x, bounds.y() + 77, available, 0xE8F1F5);
-                fitted(graphics, currentFont, constructionText("ground", job.ground()), x, bounds.y() + 92, available, 0x90A8B8);
-                fitted(graphics, currentFont, constructionText("reserved", job.reserved()), x, bounds.y() + 107, available, 0x90A8B8);
+                fitted(graphics, currentFont, constructionText("assigned", job.workers()), x, bounds.y() + 77, available, UiTheme.TEXT);
+                fitted(graphics, currentFont, constructionText("ground", job.ground()), x, bounds.y() + 92, available, UiTheme.SECONDARY);
+                fitted(graphics, currentFont, constructionText("reserved", job.reserved()), x, bounds.y() + 107, available, UiTheme.SECONDARY);
                 var resource = net.minecraft.resources.ResourceLocation.tryParse(job.neededItem());
                 var item = resource == null ? null : net.minecraftforge.registries.ForgeRegistries.ITEMS.getValue(resource);
                 if (item != null) fitted(graphics, currentFont, constructionText("needed", item.getDescription(), job.neededCount()),
-                        x, bounds.y() + 122, available, 0xE8F1F5);
+                        x, bounds.y() + 122, available, UiTheme.TEXT);
             }
         }
-        fitted(graphics, currentFont, ConstructionClient.notice(), bounds.x() + 10, bounds.bottom() - 54, bounds.width() - 20, 0xFFD379);
+        fitted(graphics, currentFont, ConstructionClient.notice(), bounds.x() + 10, bounds.bottom() - 54, bounds.width() - 20, UiTheme.WARNING);
     }
 
     private void renderDialog(GuiGraphics graphics, Font currentFont, StrategyHudLayout.Rect bounds, int mouseX, int mouseY, float partialTick) {
         if (name != null) {
             name.render(graphics, mouseX, mouseY, partialTick);
-            fitted(graphics, currentFont, text(mode == Mode.SAVE ? "capture_note" : "name_hint"), bounds.x() + 12, bounds.y() + 59, bounds.width() - 24, 0x90A8B8);
-            if (mode == Mode.SAVE && bounds.height() > 150) fitted(graphics, currentFont, text("capture_scope"), bounds.x() + 12, bounds.y() + 74, bounds.width() - 24, 0x90A8B8);
+            fitted(graphics, currentFont, text(mode == Mode.SAVE ? "capture_note" : "name_hint"), bounds.x() + 12, bounds.y() + 59, bounds.width() - 24, UiTheme.SECONDARY);
+            if (mode == Mode.SAVE && bounds.height() > 150) fitted(graphics, currentFont, text("capture_scope"), bounds.x() + 12, bounds.y() + 74, bounds.width() - 24, UiTheme.SECONDARY);
         } else {
             String label = targetPreset != null ? targetPreset.name() : targetProjection != null ? targetProjection.preset().name() : "";
-            fitted(graphics, currentFont, text("delete_question", label), bounds.x() + 12, bounds.y() + 38, bounds.width() - 24, 0xFFD379);
-            fitted(graphics, currentFont, text(mode == Mode.DELETE_PRESET ? "delete_preset_note" : "delete_projection_note"), bounds.x() + 12, bounds.y() + 57, bounds.width() - 24, 0x90A8B8);
+            fitted(graphics, currentFont, text("delete_question", label), bounds.x() + 12, bounds.y() + 38, bounds.width() - 24, UiTheme.WARNING);
+            fitted(graphics, currentFont, text(mode == Mode.DELETE_PRESET ? "delete_preset_note" : "delete_projection_note"), bounds.x() + 12, bounds.y() + 57, bounds.width() - 24, UiTheme.SECONDARY);
         }
     }
 

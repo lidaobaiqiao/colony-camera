@@ -93,13 +93,13 @@ final class SelectionLimitPanel {
         if (!open || currentFont == null) return;
         graphics.fill(0, 0, width, height, 0xA0071019);
         StrategyHud.panel(graphics, bounds);
-        StrategyHud.drawFitted(graphics, currentFont, text("title"), bounds.x() + 12, bounds.y() + 10, bounds.width() - 24, 0x67DEC2);
+        StrategyHud.drawFitted(graphics, currentFont, text("title"), bounds.x() + 12, bounds.y() + 10, bounds.width() - 24, UiTheme.ACCENT);
         EditBox field = input;
         if (field == null) return;
-        StrategyHud.drawFitted(graphics, currentFont, text("description"), bounds.x() + 12, bounds.y() + 27, bounds.width() - 24, 0xE8F1F5);
+        StrategyHud.drawFitted(graphics, currentFont, text("description"), bounds.x() + 12, bounds.y() + 27, bounds.width() - 24, UiTheme.TEXT);
         field.render(graphics, mouseX, mouseY, partialTick);
         StrategyHud.drawFitted(graphics, currentFont, text(saveFailed ? "save_failed" : "range", SelectionConfig.MAX_SIMILAR_LIMIT),
-                bounds.x() + 12, bounds.y() + 72, bounds.width() - 24, candidate() > 0 && !saveFailed ? 0x90A8B8 : 0xFFD379);
+                bounds.x() + 12, bounds.y() + 72, bounds.width() - 24, candidate() > 0 && !saveFailed ? UiTheme.SECONDARY : UiTheme.WARNING);
         button(graphics, currentFont, accept, text("save"), candidate() > 0, mouseX, mouseY);
         button(graphics, currentFont, cancel, text("cancel"), true, mouseX, mouseY);
     }
@@ -108,8 +108,8 @@ final class SelectionLimitPanel {
                                boolean enabled, int mouseX, int mouseY) {
         if (rect.width() == 0) return;
         StrategyHud.panel(graphics, rect);
-        if (enabled && rect.contains(mouseX, mouseY)) graphics.fill(rect.x() + 1, rect.y() + 1, rect.right() - 1, rect.bottom() - 1, 0xFF263B4B);
-        StrategyHud.drawFitted(graphics, font, label, rect.x() + 6, rect.y() + 6, rect.width() - 12, enabled ? 0xE8F1F5 : 0x90A8B8);
+        if (enabled && rect.contains(mouseX, mouseY)) graphics.fill(rect.x() + 1, rect.y() + 1, rect.right() - 1, rect.bottom() - 1, UiTheme.RAISED);
+        StrategyHud.drawFitted(graphics, font, label, rect.x() + 6, rect.y() + 6, rect.width() - 12, enabled ? UiTheme.TEXT : UiTheme.SECONDARY);
     }
 
     @Nonnull private static Component text(@Nonnull String key, @Nonnull Object... args) {

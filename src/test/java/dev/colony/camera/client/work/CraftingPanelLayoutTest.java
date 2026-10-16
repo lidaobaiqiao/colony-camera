@@ -4,6 +4,16 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class CraftingPanelLayoutTest {
+    @Test void compactRecipeSelectionKeepsCapacityAndDisablesHiddenGrid() {
+        for (int[] size : new int[][]{{320,180},{400,225},{480,270}}) {
+            var list=new CraftingPanelLayout(size[0],size[1],false);var detail=new CraftingPanelLayout(size[0],size[1],true);
+            assertTrue(list.showList);assertFalse(list.showDetail);assertTrue(list.pageSize()>=10);
+            assertTrue(detail.showDetail);assertFalse(detail.showList);assertEquals(list.pageSize(),detail.pageSize());
+            assertEquals(-1,detail.cellAt(list.cell(0).x()+1,list.cell(0).y()+1));
+            assertTrue(detail.detail.bottom()<detail.queue.y());assertTrue(detail.back.right()<detail.close.x());
+            assertTrue(list.filter.right()<list.categories.x());
+        }
+    }
     @Test void recipeCellsAndFooterStaySeparateOnShortAndNormalScreens() {
         for (int[] size : new int[][]{{320, 180}, {400, 225}, {640, 360}, {1920, 1080}}) {
             var layout = new CraftingPanelLayout(size[0], size[1]);

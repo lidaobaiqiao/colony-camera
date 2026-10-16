@@ -1,5 +1,7 @@
 # 项目架构
 
+1.13.0 集中 `UiTheme` / `UiDraw`，新增纯 `InspectorLayout`；人物非模态检查与打印/装备/确认模态分开。工作、配方和科研布局对紧凑尺寸显式区分可见列表/详情，渲染与输入共用几何，`StrategyScreen` 优先处理更高层菜单/帮助。服务端边界不变，见 [0031](decisions/0031-contextual-ui-and-visible-input.md)。
+
 1.12.0 新增纯 `WorkerNeeds` 与严格 `WorkerNeedsStorage`，独立保存生理/社交/实际供养和关系；`WorkerSurvival` 接已加载水源、设施、真实站位与双方交谈，`LocalClimate` 提供局部暴露模型。`WorkerLiving` 统一轮换、饮食、饮水、社交和学习，`WorkerSnapshots` 与 `WorkerPanel` 显示真实需求。
 
 `TechProgress` schema 2 保存独立研究节点，工具等级是其兼容视图；`ColonyWorkManager` 接受节点意图，`CraftingService` 复核前置并按实际材料原子完成，`TechnologyPanel` 展示服务端条件/进度。新设施仍使用既有注册、归属和工作站索引。详见 [0030](decisions/0030-colony-life-and-development.md)。

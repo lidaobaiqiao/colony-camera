@@ -1,5 +1,7 @@
 package dev.colony.camera.client.storage;
 
+import dev.colony.camera.client.screen.UiTheme;
+
 import dev.colony.camera.ColonyCamera;
 import dev.colony.camera.content.ColonyContent;
 import dev.colony.camera.storage.StorageMenu;
@@ -31,18 +33,18 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
     }
     private void turnPage(int direction) { var gameMode = client.gameMode; if (gameMode != null) gameMode.handleInventoryButtonClick(menu.containerId, direction); }
     @Override protected void renderBg(GuiGraphics graphics, float partial, int mouseX, int mouseY) {
-        graphics.fill(leftPos, topPos, leftPos + imageWidth, topPos + imageHeight, 0xF011202A);
-        graphics.fill(leftPos, topPos, leftPos + imageWidth, topPos + 2, 0xFF67DEC2);
-        for (var slot : menu.slots) graphics.fill(leftPos + slot.x - 1, topPos + slot.y - 1, leftPos + slot.x + 17, topPos + slot.y + 17, 0xFF304654);
+        graphics.fill(leftPos, topPos, leftPos + imageWidth, topPos + imageHeight, UiTheme.SURFACE);
+        graphics.fill(leftPos, topPos, leftPos + imageWidth, topPos + 2, UiTheme.ACCENT);
+        for (var slot : menu.slots) graphics.fill(leftPos + slot.x - 1, topPos + slot.y - 1, leftPos + slot.x + 17, topPos + slot.y + 17, UiTheme.RAISED);
     }
     @Override protected void renderLabels(GuiGraphics graphics, int mouseX, int mouseY) {
         Font currentFont = Objects.requireNonNull(font);
-        graphics.drawString(currentFont, Objects.requireNonNull(title), titleLabelX, titleLabelY, 0xE8F1F5, false);
+        graphics.drawString(currentFont, Objects.requireNonNull(title), titleLabelX, titleLabelY, UiTheme.TEXT, false);
         Component status = menu.status() == 0 ? Component.translatable("colonycamera.storage.capacity", 27 * (menu.capacityLevel() + 1), 1 << menu.stackLevel())
                 : Component.translatable("colonycamera.storage.network_status." + menu.status());
-        graphics.drawString(currentFont, Objects.requireNonNull(status), 9, 22, 0x67DEC2, false);
-        graphics.drawCenteredString(currentFont, Objects.requireNonNull(Component.translatable("colonycamera.storage.page", menu.page() + 1, menu.pages())), imageWidth / 2, 117, 0xE8F1F5);
-        graphics.drawString(currentFont, Objects.requireNonNull(playerInventoryTitle), inventoryLabelX, inventoryLabelY, 0x90A8B8, false);
+        graphics.drawString(currentFont, Objects.requireNonNull(status), 9, 22, UiTheme.ACCENT, false);
+        graphics.drawCenteredString(currentFont, Objects.requireNonNull(Component.translatable("colonycamera.storage.page", menu.page() + 1, menu.pages())), imageWidth / 2, 117, UiTheme.TEXT);
+        graphics.drawString(currentFont, Objects.requireNonNull(playerInventoryTitle), inventoryLabelX, inventoryLabelY, UiTheme.SECONDARY, false);
     }
     @Override public void render(GuiGraphics graphics, int mouseX, int mouseY, float partial) {
         renderBackground(graphics); super.render(graphics, mouseX, mouseY, partial);
@@ -51,7 +53,7 @@ public final class StorageScreen extends AbstractContainerScreen<StorageMenu> {
             int count = menu.count(index); if (count <= menu.slots.get(index).getItem().getMaxStackSize()) continue;
             var slot = menu.slots.get(index); String label = count >= 10000 ? (count / 1000) + "k" : String.valueOf(count);
             int x = leftPos + slot.x + 17 - currentFont.width(Objects.requireNonNull(label)); int y = topPos + slot.y + 9;
-            graphics.fill(x - 1, y - 1, leftPos + slot.x + 18, y + 8, 0xE011202A); graphics.drawString(currentFont, Objects.requireNonNull(label), x, y, 0x67DEC2, true);
+            graphics.fill(x - 1, y - 1, leftPos + slot.x + 18, y + 8, 0xE011202A); graphics.drawString(currentFont, Objects.requireNonNull(label), x, y, UiTheme.ACCENT, true);
         }
         renderTooltip(graphics, mouseX, mouseY);
         var hovered = hoveredSlot;

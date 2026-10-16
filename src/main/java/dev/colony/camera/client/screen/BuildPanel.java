@@ -160,10 +160,10 @@ final class BuildPanel {
         Font current = font; if (current == null) return;
         if (!open) return;
         StrategyHud.panel(graphics, layout.panel);
-        fitted(graphics, current, text("title"), layout.panel.x() + 7, layout.panel.y() + 9, layout.panel.width() - 58, 0xFFE8F1F5);
+        fitted(graphics, current, text("title"), layout.panel.x() + 7, layout.panel.y() + 9, layout.panel.width() - 58, UiTheme.TEXT);
         button(graphics, current, layout.close, Objects.requireNonNull(Component.literal("×")), false, mouseX, mouseY);
         button(graphics, current, layout.newWindow, Objects.requireNonNull(Component.literal("+")), false, mouseX, mouseY);
-        graphics.fill(layout.resize.x() + 2, layout.resize.y() + 6, layout.resize.right() - 1, layout.resize.bottom() - 1, 0xFF67DEC2);
+        graphics.fill(layout.resize.x() + 2, layout.resize.y() + 6, layout.resize.right() - 1, layout.resize.bottom() - 1, UiTheme.ACCENT);
         EditBox box = search; if (box != null) box.render(graphics, mouseX, mouseY, partialTick);
         button(graphics, current, layout.refresh, Objects.requireNonNull(Component.literal("↻")), false, mouseX, mouseY);
         button(graphics, current, layout.available, text("available"), availableOnly, mouseX, mouseY);
@@ -174,14 +174,15 @@ final class BuildPanel {
         for (int i = 0; i < layout.rows * layout.columns; i++) {
             int index = scroll * layout.columns + i; if (index >= filtered.size()) break;
             var row = filtered.get(index); var cell = layout.cell(i); boolean chosen = row.id().equals(selected);
-            graphics.fill(cell.x() + 1, cell.y() + 1, cell.right() - 1, cell.bottom() - 1, chosen ? 0xFF294453 : cell.contains(mouseX, mouseY) ? 0xFF23323F : 0xFF14232F);
+            graphics.fill(cell.x() + 1, cell.y() + 1, cell.right() - 1, cell.bottom() - 1, chosen ? UiTheme.SELECTED : cell.contains(mouseX, mouseY) ? UiTheme.RAISED : UiTheme.SURFACE);
             graphics.fill(cell.x() + 2, cell.bottom() - 3, cell.right() - 2, cell.bottom() - 2, color(row.status()));
+            graphics.drawString(current, switch (row.status()) { case 1 -> "+"; case 2 -> "◇"; case 3 -> "!"; default -> "…"; }, cell.right() - 7, cell.y() + 1, color(row.status()), false);
             Item item = items.get(row.id()); if (item != null) graphics.renderItem(new ItemStack(item), cell.x() + (cell.width() - 16) / 2, cell.y() + 4);
         }
         graphics.disableScissor(); renderDetail(graphics, current, mouseX, mouseY);
-        if (layout.grid.height() > 0 && filtered.isEmpty()) fitted(graphics, current, text(BuildingClient.ready() ? "empty" : "loading"), layout.grid.x() + 5, layout.grid.y() + 9, layout.grid.width() - 10, 0xFF90A8B8);
+        if (layout.grid.height() > 0 && filtered.isEmpty()) fitted(graphics, current, text(BuildingClient.ready() ? "empty" : "loading"), layout.grid.x() + 5, layout.grid.y() + 9, layout.grid.width() - 10, UiTheme.SECONDARY);
         if (categoriesOpen) {
-            graphics.fill(layout.search.x(), layout.category.bottom(), layout.search.right(), layout.category(CATEGORIES.length - 1, CATEGORIES.length).bottom(), 0xFF10232F);
+            graphics.fill(layout.search.x(), layout.category.bottom(), layout.search.right(), layout.category(CATEGORIES.length - 1, CATEGORIES.length).bottom(), UiTheme.SURFACE);
             for (int i = 0; i < CATEGORIES.length; i++) button(graphics, current, layout.category(i, CATEGORIES.length), text("category." + CATEGORIES[i]), category.equals(CATEGORIES[i]), mouseX, mouseY);
         } else {
             int index = layout.rowAt(mouseX, mouseY, scroll);
@@ -196,7 +197,9 @@ final class BuildPanel {
     private void renderDetail(GuiGraphics graphics, Font current, int mouseX, int mouseY) {
         var bounds = layout.detail; String id = selected; Item item = id == null ? null : items.get(id);
         if (item != null && id != null) {
-            fitted(graphics, current, Objects.requireNonNull(item.getDescription()), bounds.x() + 3, bounds.y() + 2, Math.max(0, bounds.width() - 28), color(status(id)));
+            fitted(graphics, current, Objects.requireNonNull(item.getDescription()), bounds.x() + 3, bounds.y() + 1, Math.max(0, bounds.width() - 28), UiTheme.TEXT);
+            int state = status(id);
+            fitted(graphics, current, text(!BuildingClient.ready() ? "loading" : state == 1 ? "state_ready" : state == 2 ? "state_craftable" : "state_missing"), bounds.x() + 3, bounds.y() + 12, Math.max(0, bounds.width() - 28), color(state));
         }
         boolean favorite = id != null && SelectionConfig.buildFavorites().contains(id);
         button(graphics, current, layout.favorite, Objects.requireNonNull(Component.literal(favorite ? "★" : "☆")), favorite, mouseX, mouseY);
@@ -206,7 +209,7 @@ final class BuildPanel {
         Item item = items.get(id); if (item == null) return Objects.requireNonNull(List.of());
         var lines = new ArrayList<Component>(); int state = status(id); var stock = BuildingClient.entry(id);
         lines.add(Objects.requireNonNull(item.getDescription())); lines.add(Objects.requireNonNull(Component.literal(id)));
-        lines.add(text("stock", stock == null ? 0 : stock.available()));
+        if (stock == null || !BuildingClient.ready()) lines.add(text("stock_unknown")); else lines.add(text("stock", stock.available()));
         lines.add(text(!BuildingClient.ready() ? "loading" : !supported.contains(id) ? "unsupported" : state == 1 ? "ready" : state == 2 ? "autocraft" : "missing"));
         if (state == 2 && stock != null) {
             var world = Minecraft.getInstance().level; ResourceLocation recipeId = ResourceLocation.tryParse(stock.recipe());
@@ -225,11 +228,10 @@ final class BuildPanel {
         for (var line : lines) wrapped.addAll(current.split(Objects.requireNonNull(line), Math.max(1, Math.min(260, width - 24))));
         graphics.renderTooltip(current, wrapped, x, y);
     }
-    private static int color(int state) { return switch (state) { case 1 -> 0xFF65DC9E; case 2 -> 0xFF67ADFF; case 3 -> 0xFFFF7778; default -> 0xFF90A8B8; }; }
+    private static int color(int state) { return switch (state) { case 1 -> UiTheme.SUCCESS; case 2 -> UiTheme.CRAFTABLE; case 3 -> UiTheme.ERROR; default -> UiTheme.SECONDARY; }; }
     private static void button(GuiGraphics graphics, Font font, StrategyHudLayout.Rect bounds, Component label, boolean active, int mouseX, int mouseY) {
         if (bounds.width() < 3 || bounds.height() < 3) return;
-        graphics.fill(bounds.x() + 1, bounds.y() + 1, bounds.right() - 1, bounds.bottom() - 1, active ? 0xFF315851 : bounds.contains(mouseX, mouseY) ? 0xFF2B4050 : 0xFF1A2D3B);
-        fitted(graphics, font, label, bounds.x() + 4, bounds.y() + Math.max(0, (bounds.height() - 9) / 2), bounds.width() - 8, active ? 0xFF8BF2C8 : 0xFFE8F1F5);
+        UiDraw.button(graphics, font, bounds, label, true, active, bounds.contains(mouseX, mouseY));
     }
     private static void fitted(GuiGraphics graphics, Font font, Component value, int x, int y, int width, int color) { StrategyHud.drawFitted(graphics, font, value, x, y, width, color); }
     @Nonnull private static Component text(String key, Object... args) { return Objects.requireNonNull(Component.translatable("screen.colonycamera.build." + key, args)); }

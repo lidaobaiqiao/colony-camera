@@ -29,16 +29,16 @@ public final class BuildPanelLayout {
         newWindow = clipped(w - 46, 3, 20, 18);
         title = clipped(1, 1, Math.max(0, w - 48), 22);
         resize = clipped(w - 9, h - 9, 9, 9);
-        search = clipped(inset, 25, inside, 18);
-        category = clipped(inset, 47, Math.max(0, inside - 58), 18);
-        available = clipped(w - inset - 54, 47, 28, 18);
-        refresh = clipped(w - inset - 22, 47, 22, 18);
+        search = clipped(inset, 25, inside, 16);
+        category = clipped(inset, 45, Math.max(0, inside - 58), 16);
+        available = clipped(w - inset - 54, 45, 28, 16);
+        refresh = clipped(w - inset - 22, 45, 22, 16);
         int total = 0;
         for (int i = 0; i < 7; i++) { categoryWidths[i] = Math.max(20, categoryWidth.applyAsInt(i) + 10); total += categoryWidths[i]; }
         horizontalCategories = total <= category.width();
-        grid = clipped(inset, 67, inside, Math.max(0, h - 67 - 13));
-        detail = clipped(inset, h - 13, Math.max(0, inside - 10), 12);
-        favorite = clipped(w - inset - 30, h - 13, 20, 12);
+        grid = clipped(inset, 63, inside, Math.max(0, h - 63 - 24));
+        detail = clipped(inset, h - 24, Math.max(0, inside - 10), 23);
+        favorite = clipped(w - inset - 30, h - 24, 20, 20);
         choose = clipped(0, 0, 0, 0);
         columns = Math.max(1, grid.width() / 26); cellWidth = grid.width() / columns; rows = grid.height() / cellHeight;
         draft = new StrategyHudLayout.Rect(0, 0, 0, 0);

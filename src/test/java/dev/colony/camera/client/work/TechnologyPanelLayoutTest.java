@@ -17,7 +17,18 @@ class TechnologyPanelLayoutTest {
                     assertFalse(first.x() < second.right() && first.right() > second.x() && first.y() < second.bottom() && first.bottom() > second.y());
                 }
             }
-            assertTrue(l.detail.bottom() < l.station.y()); assertTrue(l.station.bottom() < l.research.y());
+            if (l.showDetail) { assertTrue(l.detail.bottom() < l.station.y()); assertTrue(l.station.bottom() < l.research.y()); }
+        }
+    }
+    @Test void compactTreeAndDetailHaveDisjointInputStatesAndReadableContent() {
+        for (int[] size : new int[][]{{320,180},{400,225},{480,270}}) {
+            var list = new TechnologyPanelLayout(size[0],size[1],false);
+            var detail = new TechnologyPanelLayout(size[0],size[1],true);
+            assertTrue(list.showTree); assertFalse(list.showDetail); assertEquals(0,list.research.width());
+            assertFalse(detail.showTree); assertTrue(detail.showDetail); assertEquals(0,detail.node(0).width());
+            assertTrue(detail.detail.height() >= 72); assertTrue(detail.detail.width() >= 244);
+            assertTrue(detail.back.right() < detail.close.x());
+            assertTrue(detail.detail.bottom() < detail.station.y()); assertTrue(detail.station.bottom() < detail.research.y());
         }
     }
     @Test void tinyViewportGatesResearchAndKeepsAllRectsInside() {

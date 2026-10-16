@@ -1,5 +1,7 @@
 package dev.colony.camera.client.work;
 
+import dev.colony.camera.client.screen.UiTheme;
+
 import com.google.gson.JsonObject;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -73,25 +75,25 @@ public final class ResidencePanel {
     @Nonnull private JsonObject intent(String operation) { JsonObject value = new JsonObject(); value.addProperty("pos", Objects.requireNonNull(selected).asLong()); value.addProperty("operation", operation); return value; }
     public void render(GuiGraphics g, int mx, int my) {
         Font currentFont = font; if (!open || currentFont == null) return; ensureSelected();
-        g.fill(x, y, x + width, y + height, 0xFF182D39); g.fill(x, y, x + width, y + 2, 0xFF67DEC2);
-        draw(g, currentFont, text("title"), x + 8, y + 10, width - 40, 0xE8F1F5); g.drawString(currentFont, "×", x + width - 17, y + 9, 0x90A8B8, false);
-        if (width < 250 || height < 168) { draw(g, currentFont, text("small"), x + 8, y + 32, width - 16, 0xFFD379); return; }
+        g.fill(x, y, x + width, y + height, 0xFF182D39); g.fill(x, y, x + width, y + 2, UiTheme.ACCENT);
+        draw(g, currentFont, text("title"), x + 8, y + 10, width - 40, UiTheme.TEXT); g.drawString(currentFont, "×", x + width - 17, y + 9, UiTheme.SECONDARY, false);
+        if (width < 250 || height < 168) { draw(g, currentFont, text("small"), x + 8, y + 32, width - 16, UiTheme.WARNING); return; }
         var list = rooms();
         for (int row = 0; row < rows() && row + scroll < list.size(); row++) {
             var facility = Objects.requireNonNull(list.get(row + scroll)); int top = y + 30 + row * 26;
             g.fill(x + 8, top, detailX() - 8, top + 24, facility.pos().equals(selected) ? 0xFF28564E : 0xFF263D4C);
-            String title = word(facility.detail(), "name", ""); draw(g, currentFont, title.isBlank() ? text("unnamed") : Objects.requireNonNull(Component.literal(title)), x + 12, top + 3, detailX() - x - 24, 0xE8F1F5);
-            draw(g, currentFont, position(facility.pos()), x + 12, top + 13, detailX() - x - 24, facility.valid() ? 0x67DEC2 : 0xFFD379);
+            String title = word(facility.detail(), "name", ""); draw(g, currentFont, title.isBlank() ? text("unnamed") : Objects.requireNonNull(Component.literal(title)), x + 12, top + 3, detailX() - x - 24, UiTheme.TEXT);
+            draw(g, currentFont, position(facility.pos()), x + 12, top + 13, detailX() - x - 24, facility.valid() ? UiTheme.ACCENT : UiTheme.WARNING);
         }
-        draw(g, currentFont, ColonyWorkClient.notice(), x + 8, y + height - 40, Math.max(1, detailX() - x - 24), 0xFFD379);
-        var facility = current(); if (facility == null) { draw(g, currentFont, text("empty"), detailX(), y + 35, detailWidth(), 0x90A8B8); return; }
+        draw(g, currentFont, ColonyWorkClient.notice(), x + 8, y + height - 40, Math.max(1, detailX() - x - 24), UiTheme.WARNING);
+        var facility = current(); if (facility == null) { draw(g, currentFont, text("empty"), detailX(), y + 35, detailWidth(), UiTheme.SECONDARY); return; }
         JsonObject detail = facility.detail(); boolean writable = !flag(detail, "readOnly");
         EditBox field = name; if (field != null) { field.setEditable(writable); field.render(g, mx, my, 0); }
         button(g, currentFont, text("save"), x + width - 53, y + 30, 45, writable);
-        draw(g, currentFont, text("reason." + word(detail, "reason", "unloaded")), detailX(), y + 54, detailWidth(), facility.valid() ? 0x67DEC2 : 0xFFD379);
-        draw(g, currentFont, text("area", detail.has("area") ? detail.get("area").getAsInt() : 0), detailX(), y + 68, detailWidth(), 0x90A8B8);
-        if (height >= 190) draw(g, currentFont, text("bed", detail.has("bed") ? position(Objects.requireNonNull(BlockPos.of(detail.get("bed").getAsLong()))) : text("none")), detailX(), y + 81, detailWidth(), 0x90A8B8);
-        draw(g, currentFont, text("resident", detail.has("resident") ? shortId(word(detail, "resident", "")) : text("none")), detailX(), y + (height < 190 ? 80 : 94), detailWidth(), 0xE8F1F5);
+        draw(g, currentFont, text("reason." + word(detail, "reason", "unloaded")), detailX(), y + 54, detailWidth(), facility.valid() ? UiTheme.ACCENT : UiTheme.WARNING);
+        draw(g, currentFont, text("area", detail.has("area") ? detail.get("area").getAsInt() : 0), detailX(), y + 68, detailWidth(), UiTheme.SECONDARY);
+        if (height >= 190) draw(g, currentFont, text("bed", detail.has("bed") ? position(Objects.requireNonNull(BlockPos.of(detail.get("bed").getAsLong()))) : text("none")), detailX(), y + 81, detailWidth(), UiTheme.SECONDARY);
+        draw(g, currentFont, text("resident", detail.has("resident") ? shortId(word(detail, "resident", "")) : text("none")), detailX(), y + (height < 190 ? 80 : 94), detailWidth(), UiTheme.TEXT);
         UUID chosenResident = residentChoice;
         button(g, currentFont, text("choose", chosenResident == null ? text("none") : shortId(Objects.requireNonNull(chosenResident.toString()))), detailX(), choiceTop(), detailWidth(), !ColonyWorkClient.workers().isEmpty());
         button(g, currentFont, text("automatic", text(flag(detail, "automatic") ? "on" : "off")), detailX(), y + height - 48, detailWidth(), writable);
@@ -105,6 +107,6 @@ public final class ResidencePanel {
     private static boolean flag(JsonObject value, String key) { return value.has(key) && value.get(key).getAsBoolean(); }
     @Nonnull private static String word(JsonObject value, String key, String fallback) { return value.has(key) ? Objects.requireNonNull(value.get(key).getAsString()) : fallback; }
     @Nonnull private static Component text(String key, Object... args) { return Objects.requireNonNull(Component.translatable("colonycamera.residence.ui." + key, args)); }
-    private static void button(GuiGraphics g, Font font, Component label, int x, int y, int width, boolean enabled) { if (width <= 0) return; g.fill(x, y, x + width, y + 19, enabled ? 0xFF28564E : 0xFF243844); draw(g, font, label, x + 4, y + 6, width - 8, enabled ? 0xE8F1F5 : 0x617B8D); }
+    private static void button(GuiGraphics g, Font font, Component label, int x, int y, int width, boolean enabled) { if (width <= 0) return; g.fill(x, y, x + width, y + 19, enabled ? 0xFF28564E : 0xFF243844); draw(g, font, label, x + 4, y + 6, width - 8, enabled ? UiTheme.TEXT : 0x617B8D); }
     private static void draw(GuiGraphics g, Font font, Component value, int x, int y, int width, int color) { if (width > 0) g.drawString(font, Objects.requireNonNull(font.plainSubstrByWidth(Objects.requireNonNull(value.getString()), width)), x, y, color, false); }
 }

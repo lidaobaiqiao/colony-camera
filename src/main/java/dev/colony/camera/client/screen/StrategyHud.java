@@ -18,7 +18,7 @@ import java.util.Locale;
 
 /** Anchored command groups with transient feedback and upward menus. */
 final class StrategyHud {
-    private static final int TEXT = 0xE8F1F5, MUTED = 0x90A8B8, ACCENT = 0x67DEC2, GOLD = 0xFFD379;
+    private static final int TEXT = UiTheme.TEXT, MUTED = UiTheme.SECONDARY, ACCENT = UiTheme.ACCENT, GOLD = UiTheme.WARNING;
     private StrategyHudLayout layout = new StrategyHudLayout(1, 1);
     private StrategyHudLayout.Menu menu = StrategyHudLayout.Menu.NONE;
     private boolean helpOpen, buildOpen;
@@ -117,19 +117,19 @@ final class StrategyHud {
                 || a == StrategyHudLayout.Action.PROJECTION_MENU && menu == StrategyHudLayout.Menu.PROJECTION
                 || a == StrategyHudLayout.Action.COLONY_MENU && menu == StrategyHudLayout.Menu.COLONY;
         boolean enabled = enabled(a, controller.selection());
-        if (active || hover && enabled) g.fill(r.x() + 1, r.y() + 1, r.right() - 1, r.bottom() - 1, active ? 0xFF234B4B : 0xFF263B4B);
+        if (active || hover && enabled) g.fill(r.x() + 1, r.y() + 1, r.right() - 1, r.bottom() - 1, active ? UiTheme.SELECTED : UiTheme.RAISED);
         boolean top = a == StrategyHudLayout.Action.ANGLE_LOCK || a == StrategyHudLayout.Action.HELP || a == StrategyHudLayout.Action.EXIT;
         if (top) panel(g, r);
         Component caption = top ? literal(a == StrategyHudLayout.Action.HELP ? "?" : a == StrategyHudLayout.Action.EXIT ? "×" : controller.angleLocked() ? "⊙" : "↻") : label(a);
         int x = top ? r.x() + Math.max(0, (r.width() - font.width(caption)) / 2) : r.x() + (menuItem ? 7 : 4);
         boolean anchor = a == StrategyHudLayout.Action.PROJECTION_MENU || a == StrategyHudLayout.Action.COLONY_MENU;
-        int ink = !enabled ? 0x586C79 : active ? ACCENT : hover ? TEXT : MUTED;
+        int ink = !enabled ? UiTheme.DISABLED : active ? ACCENT : hover ? TEXT : MUTED;
         drawFitted(g, font, caption, x, r.y() + Math.max(0, (r.height() - 9) / 2), r.right() - x - (anchor ? 13 : 3), ink);
         if (anchor) {
             int ax = r.right() - 8, ay = r.y() + r.height() / 2;
             for (int i = 0; i < 3; i++) g.fill(ax - i, ay + i - 1, ax + i + 1, ay + i, 0xFF000000 | ink);
         }
-        if (active && !top) g.fill(r.x() + 4, r.bottom() - 3, r.right() - 4, r.bottom() - 2, 0xFF67DEC2);
+        if (active && !top) g.fill(r.x() + 4, r.bottom() - 3, r.right() - 4, r.bottom() - 2, UiTheme.ACCENT);
     }
     private void drawHelp(GuiGraphics g, @Nonnull Font font, int mx, int my, int width, int height) {
         g.fill(0, 0, width, height, 0x80071019); var r = layout.help(); panel(g, r);
@@ -178,9 +178,7 @@ final class StrategyHud {
         g.renderTooltip(font, wrapped, mx, my);
     }
     static void panel(GuiGraphics g, StrategyHudLayout.Rect r) {
-        if (r.width() < 2 || r.height() < 2) return;
-        g.fill(r.x(), r.y(), r.right(), r.bottom(), 0xFF334958);
-        g.fill(r.x() + 1, r.y() + 1, r.right() - 1, r.bottom() - 1, 0xE0101C28);
+        UiDraw.panel(Objects.requireNonNull(g), Objects.requireNonNull(r));
     }
     private record HelpRow(@Nonnull Component key, @Nonnull Component description) {}
 }

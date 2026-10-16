@@ -155,7 +155,7 @@ tasks.register('verifyArchitecture') {
         if (hudLayout =~ /(?m)^import\s+(net\.|org\.|com\.)/) {
             throw new GradleException('StrategyHudLayout must remain independent of game APIs')
         }
-        ['preset/BlockPreset', 'planning/ProjectionPlacement', 'client/screen/ProjectionPanelLayout', 'client/screen/BuildPanelLayout', 'client/screen/BuildCatalogFilter', 'client/input/PointerGesture', 'client/screen/WindowGeometry', 'client/planning/BlockDraftState', 'client/work/TechnologyPanelLayout', 'client/work/WorkPanelLayout', 'client/work/CraftingPanelLayout', 'worker/WorkerAttribute', 'worker/WorkerProfile', 'worker/WorkerState', 'worker/WorkerPreferences', 'worker/WorkerNeeds', 'work/MiningFrontier', 'work/MiningPartition', 'work/MiningProgress', 'resources/ReservationLedger', 'construction/ProjectOrder', 'network/ConstructionPayload'].each { model ->
+        ['preset/BlockPreset', 'planning/ProjectionPlacement', 'client/screen/ProjectionPanelLayout', 'client/screen/BuildPanelLayout', 'client/screen/BuildCatalogFilter', 'client/screen/UiTheme', 'client/screen/InspectorLayout', 'client/input/PointerGesture', 'client/screen/WindowGeometry', 'client/planning/BlockDraftState', 'client/work/TechnologyPanelLayout', 'client/work/WorkPanelLayout', 'client/work/CraftingPanelLayout', 'worker/WorkerAttribute', 'worker/WorkerProfile', 'worker/WorkerState', 'worker/WorkerPreferences', 'worker/WorkerNeeds', 'work/MiningFrontier', 'work/MiningPartition', 'work/MiningProgress', 'resources/ReservationLedger', 'construction/ProjectOrder', 'network/ConstructionPayload'].each { model ->
             def text = file("src/main/java/dev/colony/camera/${model}.java").getText('UTF-8')
             if (text =~ /(?m)^import\s+(net\.|org\.|com\.)/) {
                 throw new GradleException("${model} must remain independent of game APIs")
@@ -189,6 +189,9 @@ tasks.register('verifyModJar') {
                     'dev/colony/camera/client/screen/StrategyScreen.class',
                     'dev/colony/camera/client/screen/StrategyHud.class',
                     'dev/colony/camera/client/screen/StrategyHudLayout.class',
+                    'dev/colony/camera/client/screen/UiTheme.class',
+                    'dev/colony/camera/client/screen/UiDraw.class',
+                    'dev/colony/camera/client/screen/InspectorLayout.class',
                     'dev/colony/camera/client/input/PointerGesture.class',
                     'dev/colony/camera/client/planning/BlockDraftState.class',
                     'dev/colony/camera/client/screen/BuildWindows.class',

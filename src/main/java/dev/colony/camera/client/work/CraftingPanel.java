@@ -5,6 +5,8 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import dev.colony.camera.ColonyCamera;
 import dev.colony.camera.client.screen.StrategyHudLayout.Rect;
+import dev.colony.camera.client.screen.UiDraw;
+import dev.colony.camera.client.screen.UiTheme;
 import dev.colony.camera.work.WorkNetwork;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -50,12 +52,13 @@ public final class CraftingPanel {
     @Nonnull private final Map<String, String> reasons = new HashMap<>();
     @Nonnull private final Map<String, Integer> checked = new HashMap<>();
     @Nonnull private String category = "ALL", selected = "", query = "";
-    private boolean open, craftableOnly;
+    private boolean open, craftableOnly, detailOpen;
+    private int viewportWidth = 1, viewportHeight = 1, mouseX, mouseY;
     private int page, amount = 1, ticks, request, requestedAt = -100;
     private static final String[] CATEGORIES = {"ALL", "BUILDING", "EQUIPMENT", "REDSTONE", "MISC"};
     public boolean isOpen() { return open; }
     public void resize(Font currentFont, int width, int height) {
-        font = currentFont; layout = new CraftingPanelLayout(width, height);
+        font = currentFont; viewportWidth = width; viewportHeight = height; layout = new CraftingPanelLayout(width, height, detailOpen);
         EditBox previous = input;
         if (!layout.usable) { input = null; return; }
         var rect = layout.search;
@@ -64,6 +67,12 @@ public final class CraftingPanel {
         field.setFocused(previous != null && previous.isFocused());
         field.setResponder(value -> { query = Objects.requireNonNull(value); page = 0; filter(); requestedAt = -100; }); input = field;
     }
+    private void reflow() {
+        layout = new CraftingPanelLayout(viewportWidth, viewportHeight, detailOpen);
+        EditBox field = input;
+        if (field != null) { field.setX(layout.search.x()); field.setY(layout.search.y()); field.setWidth(layout.search.width()); if (!layout.showList) field.setFocused(false); }
+    }
+    private void back() { detailOpen = false; reflow(); }
     public void open(@Nullable BlockPos preferred) {
         CraftingPanel previous = active; if (previous != null && previous != this) previous.close();
         level = Minecraft.getInstance().level; station = preferred; open = true; active = this;
@@ -138,16 +147,16 @@ public final class CraftingPanel {
     }
     public boolean keyPressed(int key, int scan, int modifiers) {
         if (!open) return false;
-        if (key == GLFW.GLFW_KEY_ESCAPE) { close(); return true; }
+        if (key == GLFW.GLFW_KEY_ESCAPE) { if (layout.compact && detailOpen) back(); else close(); return true; }
         EditBox field = input;
-        if (field != null && field.isFocused() && field.keyPressed(key, scan, modifiers)) return true;
-        if (key == GLFW.GLFW_KEY_LEFT || key == GLFW.GLFW_KEY_RIGHT) { page = Math.max(0, Math.min(pages() - 1, page + (key == GLFW.GLFW_KEY_RIGHT ? 1 : -1))); requestedAt = -100; }
+        if (layout.showList && field != null && field.isFocused() && field.keyPressed(key, scan, modifiers)) return true;
+        if (layout.showList && (key == GLFW.GLFW_KEY_LEFT || key == GLFW.GLFW_KEY_RIGHT)) { page = Math.max(0, Math.min(pages() - 1, page + (key == GLFW.GLFW_KEY_RIGHT ? 1 : -1))); requestedAt = -100; }
         return true;
     }
-    public boolean charTyped(char character, int modifiers) { EditBox field = input; if (open && field != null) field.charTyped(character, modifiers); return open; }
+    public boolean charTyped(char character, int modifiers) { EditBox field = input; if (open && layout.showList && field != null) field.charTyped(character, modifiers); return open; }
     public boolean scroll(double delta) {
         if (!open) return false;
-        if (Double.isFinite(delta)) { page = Math.max(0, Math.min(pages() - 1, page - (int) Math.signum(delta))); requestedAt = -100; }
+        if (layout.showList && Double.isFinite(delta)) { page = Math.max(0, Math.min(pages() - 1, page - (int) Math.signum(delta))); requestedAt = -100; }
         return true;
     }
     public boolean click(double x, double y, int button) {
@@ -155,16 +164,17 @@ public final class CraftingPanel {
         if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) return true;
         if (layout.close.contains(x, y)) { close(); return true; }
         if (!layout.usable) return true;
+        if (layout.compact && detailOpen && layout.back.contains(x, y)) { back(); return true; }
         EditBox field = input;
-        if (field != null) { field.setFocused(layout.search.contains(x, y)); if (field.mouseClicked(x, y, button)) return true; }
+        if (layout.showList && field != null) { field.setFocused(layout.search.contains(x, y)); if (field.mouseClicked(x, y, button)) return true; }
         if (layout.station.contains(x, y)) {
             var stations = ColonyWorkClient.stations().stream().filter(value -> !value.research()).toList();
             if (!stations.isEmpty()) {
                 int index = -1; for (int i = 0; i < stations.size(); i++) if (stations.get(i).pos().equals(station)) index = i;
                 station = stations.get((index + 1) % stations.size()).pos(); reasons.clear(); checked.clear();
             }
-        } else if (layout.filter.contains(x, y)) { craftableOnly = !craftableOnly; page = 0; filter(); }
-        else if (layout.categories.contains(x, y)) { category = Objects.requireNonNull(CATEGORIES[Math.min(4, ((int) x - layout.categories.x()) / 25)]); page = 0; filter(); }
+        } else if (layout.showList && layout.filter.contains(x, y)) { craftableOnly = !craftableOnly; page = 0; filter(); }
+        else if (layout.showList && layout.categories.contains(x, y)) { category = Objects.requireNonNull(CATEGORIES[Math.min(4, ((int) x - layout.categories.x()) / 25)]); page = 0; filter(); }
         else if (layout.previous.contains(x, y)) page = Math.max(0, page - 1);
         else if (layout.next.contains(x, y)) page = Math.min(pages() - 1, page + 1);
         else if (layout.down.contains(x, y) || layout.up.contains(x, y)) {
@@ -173,7 +183,7 @@ public final class CraftingPanel {
             Entry entry = chosen(); BlockPos current = station;
             if (entry != null && current != null && reason(entry).equals("ready")) { ColonyWorkClient.craft(current, entry.id(), amount); reasons.clear(); checked.clear(); filter(); }
         } else {
-            int index = layout.cellAt(x, y); var visible = visible(); if (index >= 0 && index < visible.size()) selected = visible.get(index).id();
+            int index = layout.cellAt(x, y); var visible = visible(); if (index >= 0 && index < visible.size()) { selected = visible.get(index).id(); detailOpen = true; reflow(); }
         }
         requestedAt = -100; return true;
     }
@@ -184,61 +194,65 @@ public final class CraftingPanel {
     }
     public void render(GuiGraphics graphics, int mouseX, int mouseY) {
         Font currentFont = font; if (!open || currentFont == null) return;
+        this.mouseX = mouseX; this.mouseY = mouseY;
         var bounds = layout.bounds; graphics.fill(0, 0, Minecraft.getInstance().getWindow().getGuiScaledWidth(), Minecraft.getInstance().getWindow().getGuiScaledHeight(), 0x60000000);
-        bevel(graphics, bounds, 0xFFC6C6C6); label(graphics, currentFont, text("title", amount), bounds.x() + 8, bounds.y() + 7, bounds.width() - 30, 0x404040);
+        UiDraw.panel(graphics, bounds); label(graphics, currentFont, text("title", amount), bounds.x() + (layout.compact && detailOpen ? 47 : 8), bounds.y() + 7, bounds.width() - (layout.compact && detailOpen ? 74 : 30), UiTheme.TEXT);
+        if (layout.compact && detailOpen) button(graphics, currentFont, layout.back, Objects.requireNonNull(Component.translatable("colonycamera.ui.back")), true);
         button(graphics, currentFont, layout.close, Objects.requireNonNull(Component.literal("×")), true);
-        if (!layout.usable) { label(graphics, currentFont, text("small_screen"), bounds.x() + 5, bounds.y() + 25, bounds.width() - 10, 0x8A3030); return; }
+        if (!layout.usable) { label(graphics, currentFont, text("small_screen"), bounds.x() + 5, bounds.y() + 25, bounds.width() - 10, UiTheme.WARNING); return; }
         var icons = List.of(Items.COMPASS, Items.BRICKS, Items.IRON_AXE, Items.REDSTONE, Items.LAVA_BUCKET);
-        for (int i = 0; i < 5; i++) {
+        if (layout.showList) for (int i = 0; i < 5; i++) {
             var rect = new Rect(layout.categories.x() + 25 * i, layout.categories.y(), 22, 20);
-            bevel(graphics, rect, category.equals(CATEGORIES[i]) ? 0xFF9EC6A0 : 0xFF9A9A9A); graphics.renderItem(new ItemStack(Objects.requireNonNull(icons.get(i))), rect.x() + 3, rect.y() + 2);
+            bevel(graphics, rect, category.equals(CATEGORIES[i]) ? UiTheme.SELECTED : UiTheme.RAISED); graphics.renderItem(new ItemStack(Objects.requireNonNull(icons.get(i))), rect.x() + 3, rect.y() + 2);
         }
         BlockPos current = station;
         button(graphics, currentFont, layout.station, current == null ? text("station_missing") : text("station", current.getX(), current.getY(), current.getZ()), true);
-        EditBox field = input; if (field != null) field.render(graphics, mouseX, mouseY, 0);
-        button(graphics, currentFont, layout.filter, Objects.requireNonNull(Component.literal(craftableOnly ? "+" : "−")), true);
+        EditBox field = input; if (layout.showList && field != null) field.render(graphics, mouseX, mouseY, 0);
+        if (layout.showList) button(graphics, currentFont, layout.filter, Objects.requireNonNull(Component.literal(craftableOnly ? "+" : "−")), true);
         List<Component> tooltip = new ArrayList<>();
         var values = visible();
-        for (int i = 0; i < values.size(); i++) {
+        if (layout.showList) for (int i = 0; i < values.size(); i++) {
             Entry entry = Objects.requireNonNull(values.get(i)); var rect = layout.cell(i); String state = reason(entry);
-            bevel(graphics, rect, state.equals("ready") ? 0xFFA9C9A0 : state.equals("checking") ? 0xFF9D9D9D : 0xFFD0AAAA);
-            if (entry.id().equals(selected)) graphics.renderOutline(rect.x(), rect.y(), rect.width(), rect.height(), 0xFF476A95);
+            bevel(graphics, rect, entry.id().equals(selected) ? UiTheme.SELECTED : UiTheme.RAISED);
+            int ink = state.equals("ready") ? UiTheme.SUCCESS : state.equals("checking") ? UiTheme.SECONDARY : UiTheme.ERROR;
+            graphics.fill(rect.x() + 2, rect.bottom() - 2, rect.right() - 2, rect.bottom() - 1, ink);
+            if (entry.id().equals(selected)) graphics.renderOutline(rect.x(), rect.y(), rect.width(), rect.height(), UiTheme.ACCENT);
             ItemStack icon = entry.output().isEmpty() ? new ItemStack(Objects.requireNonNull(Items.BARRIER)) : entry.output();
             graphics.renderItem(icon, rect.x() + 3, rect.y() + 3); graphics.renderItemDecorations(currentFont, icon, rect.x() + 3, rect.y() + 3);
             if (rect.contains(mouseX, mouseY)) { tooltip.add(Objects.requireNonNull(Component.literal(entry.name()))); tooltip.add(Objects.requireNonNull(Component.literal(entry.id()))); tooltip.add(status(entry)); }
         }
-        if (values.isEmpty()) label(graphics, currentFont, text(craftableOnly ? "none_ready" : "no_results"), layout.grid.x(), layout.grid.y(), layout.grid.width(), 0x804040);
+        if (layout.showList && values.isEmpty()) label(graphics, currentFont, text(craftableOnly ? "none_ready" : "no_results"), layout.grid.x(), layout.grid.y(), layout.grid.width(), UiTheme.SECONDARY);
         Entry entry = chosen();
-        if (entry != null) {
-            int x = layout.detailX, y = bounds.y() + 74;
-            label(graphics, currentFont, Objects.requireNonNull(Component.literal(entry.name())), x, y, layout.detailWidth, 0x404040);
+        if (layout.showDetail && entry != null) {
+            int x = layout.detailX, y = layout.detail.y();
+            label(graphics, currentFont, Objects.requireNonNull(Component.literal(entry.name())), x, y, layout.detailWidth, UiTheme.TEXT);
             List<Ingredient> ingredients = entry.recipe().getIngredients();
             int slotSize = bounds.height() < 190 ? 16 : 18;
             for (int slot = 0; slot < 9; slot++) {
                 int index = slot;
                 if (entry.recipe() instanceof ShapedRecipe shaped) index = slot % 3 < shaped.getWidth() && slot / 3 < shaped.getHeight() ? slot / 3 * shaped.getWidth() + slot % 3 : -1;
                 Ingredient ingredient = index >= 0 && index < ingredients.size() ? ingredients.get(index) : Ingredient.EMPTY;
-                var rect = new Rect(x + slot % 3 * slotSize, y + 16 + slot / 3 * slotSize, slotSize, slotSize); bevel(graphics, rect, 0xFF8B8B8B);
+                var rect = new Rect(x + slot % 3 * slotSize, y + 16 + slot / 3 * slotSize, slotSize, slotSize); bevel(graphics, rect, UiTheme.RAISED);
                 var alternatives = ingredient.getItems();
                 if (alternatives.length > 0) {
                     var stack = Objects.requireNonNull(alternatives[(ticks / 20) % alternatives.length]); graphics.renderItem(stack, rect.x(), rect.y());
                     if (rect.contains(mouseX, mouseY)) { tooltip.add(stack.getHoverName()); tooltip.add(text("ingredient_count", amount)); if (alternatives.length > 1) tooltip.add(text("alternatives", alternatives.length)); }
                 }
             }
-            label(graphics, currentFont, Objects.requireNonNull(Component.literal("→")), x + 58, y + 36, 13, 0x404040);
-            var output = new Rect(x + 74, y + 33, 24, 24); bevel(graphics, output, 0xFF8B8B8B);
+            label(graphics, currentFont, Objects.requireNonNull(Component.literal("→")), x + 58, y + 36, 13, UiTheme.TEXT);
+            var output = new Rect(x + 74, y + 33, 24, 24); bevel(graphics, output, UiTheme.RAISED);
             if (!entry.output().isEmpty()) { graphics.renderItem(entry.output(), output.x() + 4, output.y() + 4); graphics.renderItemDecorations(currentFont, entry.output(), output.x() + 4, output.y() + 4); }
             int statusY = y + 16 + 3 * slotSize + 5;
             if (statusY + 9 < layout.queue.y() - 3) {
-                label(graphics, currentFont, status(entry), x, statusY, layout.detailWidth, reason(entry).equals("ready") ? 0x23652D : 0x913D3D);
+                label(graphics, currentFont, status(entry), x, statusY, layout.detailWidth, reason(entry).equals("ready") ? UiTheme.SUCCESS : UiTheme.ERROR);
                 if (statusY + 22 < layout.queue.y() - 3)
-                    label(graphics, currentFont, text("batch", amount, entry.output().getCount() * amount), x, statusY + 13, layout.detailWidth, 0x404040);
+                    label(graphics, currentFont, text("batch", amount, entry.output().getCount() * amount), x, statusY + 13, layout.detailWidth, UiTheme.TEXT);
             }
             if (output.contains(mouseX, mouseY)) { tooltip.add(Objects.requireNonNull(Component.literal(entry.name()))); tooltip.add(status(entry)); }
         }
         button(graphics, currentFont, layout.previous, Objects.requireNonNull(Component.literal("‹")), page > 0);
         button(graphics, currentFont, layout.next, Objects.requireNonNull(Component.literal("›")), page + 1 < pages());
-        label(graphics, currentFont, text("page", page + 1, pages()), layout.previous.right() + 5, layout.previous.y() + 5, 76, 0x404040);
+        if (layout.showList) label(graphics, currentFont, text("page", page + 1, pages()), layout.previous.right() + 5, layout.previous.y() + 5, layout.next.x() - layout.previous.right() - 10, UiTheme.SECONDARY);
         button(graphics, currentFont, layout.down, Objects.requireNonNull(Component.literal("−")), amount > 1);
         button(graphics, currentFont, layout.up, Objects.requireNonNull(Component.literal("+")), amount < 64);
         button(graphics, currentFont, layout.queue, text("queue"), entry != null && reason(entry).equals("ready"));
@@ -248,8 +262,8 @@ public final class CraftingPanel {
             graphics.fill(bounds.x(), messageY - 2, bounds.right(), messageY + message.size() * 11, 0xE0202020);
             for (var line : message) { graphics.drawString(currentFont, Objects.requireNonNull(line), bounds.x() + 6, messageY, 0xFFFFFFFF); messageY += 11; }
         }
-        if (layout.filter.contains(mouseX, mouseY)) tooltip.add(text(craftableOnly ? "show_all" : "show_ready"));
-        for (int i = 0; i < 5; i++) if (new Rect(layout.categories.x() + i * 25, layout.categories.y(), 22, 20).contains(mouseX, mouseY)) tooltip.add(text("category." + CATEGORIES[i].toLowerCase(Locale.ROOT)));
+        if (layout.showList && layout.filter.contains(mouseX, mouseY)) tooltip.add(text(craftableOnly ? "show_all" : "show_ready"));
+        if (layout.showList) for (int i = 0; i < 5; i++) if (new Rect(layout.categories.x() + i * 25, layout.categories.y(), 22, 20).contains(mouseX, mouseY)) tooltip.add(text("category." + CATEGORIES[i].toLowerCase(Locale.ROOT)));
         if (layout.queue.contains(mouseX, mouseY)) { tooltip.add(text("batch", amount, entry == null ? 0 : entry.output().getCount() * amount)); if (entry != null) tooltip.add(status(entry)); }
         if (!tooltip.isEmpty()) {
             List<net.minecraft.util.FormattedCharSequence> wrapped = new ArrayList<>();
@@ -262,15 +276,14 @@ public final class CraftingPanel {
                 : reason.equals("recipe") ? text("manual_recipe") : Objects.requireNonNull(Component.translatable("colonycamera.work.reason." + reason));
     }
     private static void bevel(GuiGraphics graphics, Rect rect, int color) {
+        if (rect.width() <= 0 || rect.height() <= 0) return;
         graphics.fill(rect.x(), rect.y(), rect.right(), rect.bottom(), color);
-        graphics.fill(rect.x(), rect.y(), rect.right(), rect.y() + 1, 0xFFFFFFFF); graphics.fill(rect.x(), rect.y(), rect.x() + 1, rect.bottom(), 0xFFFFFFFF);
-        graphics.fill(rect.x(), rect.bottom() - 1, rect.right(), rect.bottom(), 0xFF555555); graphics.fill(rect.right() - 1, rect.y(), rect.right(), rect.bottom(), 0xFF555555);
     }
-    private static void button(GuiGraphics graphics, Font font, Rect rect, Component text, boolean enabled) {
-        bevel(graphics, rect, enabled ? 0xFFB1B1B1 : 0xFF999999); label(graphics, font, text, rect.x() + 3, rect.y() + Math.max(1, (rect.height() - 9) / 2), rect.width() - 6, enabled ? 0x303030 : 0x676767);
+    private void button(GuiGraphics graphics, Font font, Rect rect, Component text, boolean enabled) {
+        UiDraw.button(graphics, font, rect, text, enabled, false, rect.contains(mouseX, mouseY));
     }
     private static void label(GuiGraphics graphics, Font font, Component text, int x, int y, int width, int color) {
-        if (width > 0) graphics.drawString(font, Objects.requireNonNull(font.plainSubstrByWidth(Objects.requireNonNull(text.getString()), width)), x, y, color, false);
+        UiDraw.fitted(graphics, font, text, x, y, width, color);
     }
     @Nonnull private static Component text(String key, Object... values) { return Objects.requireNonNull(Component.translatable("colonycamera.craftbook." + key, values)); }
 }

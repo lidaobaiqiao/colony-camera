@@ -202,13 +202,13 @@ final class BuildWindows {
         Component name = Objects.requireNonNull(item == null ? Component.literal(id == null ? "" : id) : item.getDescription());
         Component caption = Objects.requireNonNull(Component.translatable("screen.colonycamera.build.placing", name));
         StrategyHud.drawFitted(g, current, BuildingClient.recentNotice() ? BuildingClient.notice() : caption,
-                strip.x() + 5, strip.y() + 9, stripControl(0).x() - strip.x() - 9, 0x67DEC2);
+                strip.x() + 5, strip.y() + 9, stripControl(0).x() - strip.x() - 9, UiTheme.ACCENT);
         String[] symbols = {"▦", "↻", "+", "−", "×"};
         String[] labels = {"palette", "rotate", "up", "down", "cancel"};
         for (int i = 0; i < 5; i++) {
             var r = stripControl(i);
-            if (r.contains(mx, my)) g.fill(r.x(), r.y(), r.right(), r.bottom(), 0xFF263B4B);
-            StrategyHud.drawFitted(g, current, Objects.requireNonNull(Component.literal(Objects.requireNonNull(symbols[i]))), r.x() + 4, r.y() + 5, r.width() - 4, 0xE8F1F5);
+            if (r.contains(mx, my)) g.fill(r.x(), r.y(), r.right(), r.bottom(), UiTheme.RAISED);
+            StrategyHud.drawFitted(g, current, Objects.requireNonNull(Component.literal(Objects.requireNonNull(symbols[i]))), r.x() + 4, r.y() + 5, r.width() - 4, UiTheme.TEXT);
             if (r.contains(mx, my)) {
                 List<net.minecraft.util.FormattedCharSequence> lines = new ArrayList<>();
                 lines.addAll(current.split(caption, Math.max(1, Math.min(260, width - 24))));

@@ -71,6 +71,7 @@ public final class StrategyScreen extends Screen {
     @Override
     public void removed() {
         clearInputState();
+        work.close();
         building.dispose();
         controller.exit(Minecraft.getInstance());
     }
@@ -84,6 +85,7 @@ public final class StrategyScreen extends Screen {
         if (key == GLFW.GLFW_KEY_ESCAPE && hud.closeMenu()) { pauseCameraInput(); return true; }
         if (key == GLFW.GLFW_KEY_ESCAPE && hud.helpOpen()) { hud.closeHelp(); pauseCameraInput(); return true; }
         if (volumeFilter.keyPressed(key, scan, modifiers) || similarLimit.keyPressed(key, scan, modifiers)) return true;
+        if (hud.helpOpen() || hud.menuOpen()) return true;
         if (work.keyPressed(key, scan, modifiers)) return true;
         if (projections.keyPressed(key, scan, modifiers)) return true;
         if (building.keyPressed(key, scan, modifiers)) return true;
@@ -166,8 +168,6 @@ public final class StrategyScreen extends Screen {
             return true;
         }
         if (volumeFilter.click(x, y, button) || similarLimit.click(x, y, button)) return true;
-        if (work.click(x, y, button)) return true;
-        if (projections.click(x, y, button)) return true;
         if (hud.helpOpen()) {
             StrategyHudLayout.Rect help = hud.layout().help();
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && (!help.contains(x, y)
@@ -182,6 +182,8 @@ public final class StrategyScreen extends Screen {
             else hud.closeMenu();
             return true;
         }
+        if (work.click(x, y, button)) return true;
+        if (projections.click(x, y, button)) return true;
         var hudAction = hud.actionAt(x, y);
         if (hudAction != null) {
             if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) runHudAction(hudAction);
@@ -237,7 +239,7 @@ public final class StrategyScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double x, double y, int button, double deltaX, double deltaY) {
-        if (similarLimit.isOpen() || work.isOpen() || projections.modal() || hud.helpOpen() || hud.menuOpen()) return true;
+        if (similarLimit.isOpen() || work.modal() || work.blocks(x, y) || projections.modal() || hud.helpOpen() || hud.menuOpen()) return true;
         if (building.drag(x, y, button)) return true;
         if (button == dragButton && client.isWindowActive()) {
             switch (button) {
@@ -393,7 +395,7 @@ public final class StrategyScreen extends Screen {
     }
 
     public boolean allowsCameraInput() {
-        return !volumeFilter.isOpen() && !similarLimit.isOpen() && !building.capturesKeyboard() && !building.dragging() && !hud.menuOpen() && !hud.helpOpen() && !projections.modal() && !work.isOpen();
+        return !volumeFilter.isOpen() && !similarLimit.isOpen() && !building.capturesKeyboard() && !building.dragging() && !hud.menuOpen() && !hud.helpOpen() && !projections.modal() && !work.modal();
     }
 
     public void openWork(@Nonnull WorkPanel.Tab page) {
@@ -451,13 +453,13 @@ public final class StrategyScreen extends Screen {
 
     @Override
     public void render(@Nonnull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        if (!work.isOpen() && !projections.modal() && !hud.helpOpen() && !similarLimit.isOpen() && !volumeFilter.isOpen()) {
+        if (!work.modal() && !projections.modal() && !hud.helpOpen() && !similarLimit.isOpen() && !volumeFilter.isOpen()) {
             building.render(graphics, hud.menuContains(mouseX, mouseY) ? -10000 : mouseX, hud.menuContains(mouseX, mouseY) ? -10000 : mouseY, partialTick);
         }
         hud.render(graphics, Objects.requireNonNull(font), controller, mouseX, mouseY, width, height, building.isOpen());
         projections.render(graphics, mouseX, mouseY, partialTick);
-        work.render(graphics, mouseX, mouseY);
-        if (!work.isOpen() && !projections.modal() && !similarLimit.isOpen() && !volumeFilter.isOpen())
+        work.render(graphics, hud.menuOpen() || hud.helpOpen() ? -10000 : mouseX, hud.menuOpen() || hud.helpOpen() ? -10000 : mouseY);
+        if (!work.modal() && !projections.modal() && !similarLimit.isOpen() && !volumeFilter.isOpen())
             hud.renderOverlay(graphics, Objects.requireNonNull(font), controller, mouseX, mouseY, width, height);
         similarLimit.render(graphics, mouseX, mouseY, partialTick, width, height);
         volumeFilter.render(graphics, mouseX, mouseY);

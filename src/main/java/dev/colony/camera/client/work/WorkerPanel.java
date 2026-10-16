@@ -1,6 +1,10 @@
 package dev.colony.camera.client.work;
 
 import com.google.gson.JsonObject;
+import dev.colony.camera.client.screen.InspectorLayout;
+import dev.colony.camera.client.screen.UiDraw;
+import dev.colony.camera.client.screen.UiTheme;
+import net.minecraft.util.FormattedCharSequence;
 import dev.colony.camera.client.construction.ConstructionClient;
 import dev.colony.camera.worker.WorkerAttribute;
 import dev.colony.camera.worker.WorkerProfile;
@@ -22,9 +26,12 @@ import javax.annotation.ParametersAreNonnullByDefault;
 /** Compact, scrollable person view. Values and available facilities come exclusively from server snapshots. */
 @ParametersAreNonnullByDefault
 public final class WorkerPanel {
-    private enum Page { OVERVIEW, LEARNING, ORDERS, TASKS, EQUIPMENT, SOCIAL, PRINT }
+    private enum Page { OVERVIEW, TASKS, EQUIPMENT, GROWTH, LIFE, SOCIAL, LEARNING, ORDERS, PRINT }
+    private static final Page[] TABS = {Page.OVERVIEW, Page.TASKS, Page.EQUIPMENT, Page.GROWTH, Page.LIFE, Page.SOCIAL};
     @Nonnull private final RegistryPicker equipment = new RegistryPicker();
-    private record Row(@Nonnull Component text, @Nullable String action, boolean enabled, double bar) {}
+    private record Row(@Nonnull Component text, @Nullable String action, boolean enabled, double bar, @Nullable FormattedCharSequence line) {
+        Row(Component text, @Nullable String action, boolean enabled, double bar) { this(text, action, enabled, bar, null); }
+    }
     @Nullable private UUID person, target, undertaking;
     @Nullable private BlockPos school, core;
     @Nonnull private WorkerProfile.Profession profession = WorkerProfile.Profession.MINER;
@@ -34,66 +41,109 @@ public final class WorkerPanel {
     @Nonnull private Page page = Page.OVERVIEW;
     @Nonnull private final List<Row> rows = new ArrayList<>();
     @Nullable private Font font;
-    private int x, y, width, height, scroll, tier = 1;
+    private int x, y, width, scroll, tier = 1, viewportWidth = 1, viewportHeight = 1;
+    @Nonnull private InspectorLayout layout = new InspectorLayout(1, 1, false, 0);
+    @Nullable private JsonObject pendingOrder;
+    private boolean pressureExpanded;
     private boolean open;
     public boolean isOpen() { return open; }
     public void resize(Font value, int screenWidth, int screenHeight) {
-        font = value; width = Math.max(1, Math.min(400, screenWidth - 16)); height = Math.max(1, Math.min(320, screenHeight - 16));
-        x = Math.max(0, (screenWidth - width) / 2); y = Math.max(0, (screenHeight - height) / 2);
+        font = value; viewportWidth = screenWidth; viewportHeight = screenHeight; relayout();
         equipment.resize(value, screenWidth, screenHeight);
     }
-    public void open(UUID id) { person = id; page = Page.OVERVIEW; scroll = 0; open = true; equipment.close(); ColonyWorkClient.refresh(); }
-    public void print() { person = null; page = Page.PRINT; scroll = 0; open = true; equipment.close(); ColonyWorkClient.refresh(); }
-    public void close() { open = false; equipment.close(); }
+    private void relayout() {
+        layout = new InspectorLayout(viewportWidth, viewportHeight, page == Page.PRINT || pendingOrder != null, rows.size());
+        x = layout.bounds.x(); y = layout.bounds.y(); width = layout.bounds.width();
+    }
+    public boolean modal() { return open && (page == Page.PRINT || pendingOrder != null || equipment.isOpen()); }
+    public boolean blocks(double mouseX, double mouseY) { return open && (modal() || layout.bounds.contains(mouseX, mouseY)); }
+    public void open(UUID id) {
+        if (!id.equals(person)) { page = Page.OVERVIEW; scroll = 0; pressureExpanded = false; }
+        person = id; pendingOrder = null; open = true; equipment.close(); relayout(); ColonyWorkClient.refresh();
+    }
+    public void print() { person = null; pendingOrder = null; page = Page.PRINT; scroll = 0; open = true; equipment.close(); relayout(); ColonyWorkClient.refresh(); }
+    public void close() { open = false; pendingOrder = null; equipment.close(); }
     public void tick() { if (open) equipment.tick(); }
-    public boolean charTyped(char ch, int modifiers) { if (!open) return false; equipment.charTyped(ch, modifiers); return true; }
+    public boolean charTyped(char ch, int modifiers) { if (!open) return false; return equipment.charTyped(ch, modifiers) || modal(); }
+    private void back() {
+        if (pendingOrder != null) pendingOrder = null;
+        else if (page == Page.LEARNING || page == Page.ORDERS) page = page == Page.LEARNING ? Page.GROWTH : Page.TASKS;
+        else { close(); return; }
+        scroll = 0; relayout();
+    }
+    private int tabIndex() { return page == Page.LEARNING ? 3 : page == Page.ORDERS ? 1 : Math.min(5, page.ordinal()); }
+    private void changePage(int change) { page = Objects.requireNonNull(TABS[Math.floorMod(tabIndex() + change, TABS.length)]); scroll = 0; relayout(); }
     public boolean keyPressed(int key, int scan, int modifiers) {
-        if (!open) return false; if (equipment.keyPressed(key, scan, modifiers)) return true; if (key == GLFW.GLFW_KEY_ESCAPE) close();
-        else if (key == GLFW.GLFW_KEY_DOWN || key == GLFW.GLFW_KEY_UP) scroll += key == GLFW.GLFW_KEY_DOWN ? 1 : -1;
-        return true;
+        if (!open) return false;
+        if (equipment.keyPressed(key, scan, modifiers)) return true;
+        if (key == GLFW.GLFW_KEY_ESCAPE) { back(); return true; }
+        if (key == GLFW.GLFW_KEY_DOWN || key == GLFW.GLFW_KEY_UP || key == GLFW.GLFW_KEY_PAGE_DOWN || key == GLFW.GLFW_KEY_PAGE_UP) {
+            scroll += (key == GLFW.GLFW_KEY_DOWN || key == GLFW.GLFW_KEY_PAGE_DOWN ? 1 : -1) * (key == GLFW.GLFW_KEY_PAGE_DOWN || key == GLFW.GLFW_KEY_PAGE_UP ? visibleRows() : 1); return true;
+        }
+        if (key == GLFW.GLFW_KEY_TAB && (modifiers & GLFW.GLFW_MOD_CONTROL) != 0 && !modal()) { changePage((modifiers & GLFW.GLFW_MOD_SHIFT) == 0 ? 1 : -1); return true; }
+        return modal();
     }
     public boolean scroll(double delta) { if (!open) return false; if (equipment.scroll(delta)) return true; if (Double.isFinite(delta)) scroll -= (int) Math.signum(delta); return true; }
     public boolean click(double mouseX, double mouseY, int button) {
-        if (!open) return false; if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) return true;
+        if (!blocks(mouseX, mouseY)) return false;
         if (equipment.click(mouseX, mouseY, button)) return true;
+        if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) return true;
         rebuild();
-        if (mouseX >= x + width - 24 && mouseX < x + width && mouseY >= y && mouseY < y + 22) { close(); return true; }
-        if (width < 160 || height < 100) return true;
-        if (page != Page.PRINT && mouseX >= x + 6 && mouseX < x + width - 6 && mouseY >= y + 24 && mouseY < y + 44) {
-            int tab = Math.min(5, (int) ((mouseX - x - 6) * 6 / Math.max(1, width - 12))); page = Objects.requireNonNull(Page.values()[tab]); scroll = 0; return true;
+        if (layout.close.contains(mouseX, mouseY)) { close(); return true; }
+        boolean nested = page == Page.LEARNING || page == Page.ORDERS || pendingOrder != null;
+        if (nested && layout.back.contains(mouseX, mouseY)) { back(); return true; }
+        if (!layout.usable) return true;
+        if (!layout.modal && pendingOrder == null) {
+            if (layout.compact) {
+                if (layout.previous.contains(mouseX, mouseY)) { changePage(-1); return true; }
+                if (layout.next.contains(mouseX, mouseY) || layout.tab(0).contains(mouseX, mouseY)) { changePage(1); return true; }
+            } else for (int i = 0; i < TABS.length; i++) if (layout.tab(i).contains(mouseX, mouseY)) { page = Objects.requireNonNull(TABS[i]); scroll = 0; relayout(); return true; }
         }
-        int top = y + 49, bottom = y + height - 22;
-        if (mouseX < x + 8 || mouseX >= x + width - 8 || mouseY < top || mouseY >= bottom) return true;
-        int row = scroll + (int) ((mouseY - top) / 20);
-        if (row >= 0 && row < rows.size()) {
-            Row value = Objects.requireNonNull(rows.get(row));
-            String action = value.action();
-            if (value.enabled() && action != null) act(action);
+        int index = layout.rowAt(mouseX, mouseY);
+        if (index >= 0 && scroll + index < rows.size()) {
+            Row entry = Objects.requireNonNull(rows.get(scroll + index)); String action = entry.action();
+            if (action != null && entry.enabled()) act(action);
         }
         return true;
     }
     public void render(GuiGraphics graphics, int mouseX, int mouseY) {
-        Font current = font; if (!open || current == null) return; rebuild();
-        if (equipment.isOpen()) { equipment.render(graphics, mouseX, mouseY); return; }
-        graphics.fill(x, y, x + width, y + height, 0xFF142432); graphics.fill(x, y, x + width, y + 2, 0xFF67DEC2);
-        draw(graphics, current, text(page == Page.PRINT ? "print_title" : "title", person == null ? "" : person.toString().substring(0, 8)), x + 9, y + 9, width - 42, 0xE8F1F5);
-        graphics.drawString(current, "×", x + width - 17, y + 8, 0x90A8B8, false);
-        if (width < 160 || height < 100) { draw(graphics, current, Objects.requireNonNull(Component.translatable("colonycamera.work.small_screen")), x + 5, y + 27, width - 10, 0xFFD379); return; }
-        if (page != Page.PRINT) for (int i = 0; i < 6; i++) {
-            int left = x + 6 + (width - 12) * i / 6, right = x + 6 + (width - 12) * (i + 1) / 6;
-            graphics.fill(left, y + 24, right - 1, y + 43, page.ordinal() == i ? 0xFF28504C : 0xFF203442);
-            draw(graphics, current, text("page." + Objects.requireNonNull(Page.values()[i]).name().toLowerCase(java.util.Locale.ROOT)), left + 4, y + 30, right - left - 8, 0xE8F1F5);
+        Font current = font; if (!open || current == null) return;
+        rebuild();
+        if (modal()) graphics.fill(0, 0, viewportWidth, viewportHeight, UiTheme.SCRIM);
+        UiDraw.panel(graphics, layout.bounds);
+        boolean nested = page == Page.LEARNING || page == Page.ORDERS || pendingOrder != null;
+        int titleX = x + (nested ? 24 : 7);
+        draw(graphics, current, text(page == Page.PRINT ? "print_title" : pendingOrder != null ? "confirm_title" : "title", person == null ? "" : person.toString().substring(0, 8)), titleX, y + 6, width - (nested ? 48 : 30), UiTheme.TEXT);
+        UiDraw.button(graphics, current, layout.close, Objects.requireNonNull(Component.literal("×")), true, false, layout.close.contains(mouseX, mouseY));
+        if (nested) UiDraw.button(graphics, current, layout.back, Objects.requireNonNull(Component.literal("‹")), true, false, layout.back.contains(mouseX, mouseY));
+        if (!layout.usable) { draw(graphics, current, Objects.requireNonNull(Component.translatable("colonycamera.work.small_screen")), x + 5, y + 25, width - 10, UiTheme.WARNING); return; }
+        if (!layout.modal) {
+            if (layout.compact) {
+                UiDraw.button(graphics, current, layout.previous, Objects.requireNonNull(Component.literal("‹")), true, false, layout.previous.contains(mouseX, mouseY));
+                UiDraw.button(graphics, current, layout.next, Objects.requireNonNull(Component.literal("›")), true, false, layout.next.contains(mouseX, mouseY));
+                UiDraw.button(graphics, current, layout.tab(0), text("page." + Objects.requireNonNull(TABS[tabIndex()].name()).toLowerCase(java.util.Locale.ROOT)), true, true, layout.tab(0).contains(mouseX, mouseY));
+            } else for (int i = 0; i < TABS.length; i++) UiDraw.button(graphics, current, layout.tab(i), text("page." + Objects.requireNonNull(TABS[i].name()).toLowerCase(java.util.Locale.ROOT)), true, i == tabIndex(), layout.tab(i).contains(mouseX, mouseY));
         }
-        int top = y + 49, bottom = y + height - 22; graphics.enableScissor(x + 7, top, x + width - 7, bottom);
-        for (int index = scroll; index < rows.size(); index++) {
-            Row row = Objects.requireNonNull(rows.get(index)); int rowY = top + (index - scroll) * 20; if (rowY >= bottom) break;
-            if (row.action() != null) graphics.fill(x + 8, rowY, x + width - 8, rowY + 18, row.enabled() ? 0xFF28443F : 0xFF26343F);
-            draw(graphics, current, row.text(), x + 12, rowY + 5, width - 24, row.enabled() ? 0xE8F1F5 : 0x90A8B8);
-            if (row.bar() >= 0) { graphics.fill(x + 12, rowY + 17, x + width - 12, rowY + 19, 0xFF344957); graphics.fill(x + 12, rowY + 17, x + 12 + (int) ((width - 24) * Math.min(1, row.bar())), rowY + 19, 0xFF67DEC2); }
+        graphics.enableScissor(layout.content.x(), layout.content.y(), layout.content.right(), layout.content.bottom());
+        for (int index = 0; index < visibleRows() && index + scroll < rows.size(); index++) {
+            Row row = Objects.requireNonNull(rows.get(index + scroll)); var rect = layout.row(index);
+            if (row.action() != null) UiDraw.button(graphics, current, rect, row.text(), row.enabled(), false, rect.contains(mouseX, mouseY));
+            else if (row.line() != null) graphics.drawString(current, Objects.requireNonNull(row.line()), rect.x() + 3, rect.y() + 4, UiTheme.TEXT, false);
+            else draw(graphics, current, row.text(), rect.x() + 3, rect.y() + 4, rect.width() - 6, UiTheme.TEXT);
+            if (row.bar() >= 0) UiDraw.progress(graphics, rect.x() + 3, rect.bottom() - 2, rect.width() - 6, row.bar(), UiTheme.ACCENT);
         }
-        graphics.disableScissor(); draw(graphics, current, ColonyWorkClient.notice(), x + 10, y + height - 14, width - 20, 0xFFD379);
+        graphics.disableScissor();
+        Component notice = ColonyWorkClient.recentNotice() ? ColonyWorkClient.notice() : text("page_hint", scroll + 1, Math.max(1, rows.size()));
+        draw(graphics, current, notice, layout.notice.x(), layout.notice.y(), layout.notice.width(), UiTheme.SECONDARY);
+        int hovered = layout.rowAt(mouseX, mouseY);
+        if (hovered >= 0 && hovered + scroll < rows.size()) {
+            Row entry = Objects.requireNonNull(rows.get(hovered + scroll));
+            if (entry.action() != null || current.width(entry.text()) > layout.content.width() - 6)
+                graphics.renderTooltip(current, Objects.requireNonNull(current.split(entry.text(), Math.max(1, Math.min(240, viewportWidth - 24)))), mouseX, mouseY);
+        }
+        equipment.render(graphics, mouseX, mouseY);
     }
-    private int visibleRows() { return Math.max(1, (height - 71) / 20); }
+    private int visibleRows() { return layout.rows(); }
     private void rebuild() {
         rows.clear();
         if (page == Page.PRINT) {
@@ -104,48 +154,53 @@ public final class WorkerPanel {
             row(text("birth_rule"));
         } else {
             var worker = worker();
-            if (worker == null) { row(text("unavailable")); scroll = 0; return; }
+            if (worker == null) { row(text("unavailable")); relayout(); scroll = 0; return; }
             JsonObject state = worker.state(); boolean writable = !flag(state, "readOnly");
             row(text("status", text("reason." + word(state, "reason", "idle"))));
-            if (!writable) { row(text("read_only")); scroll = 0; return; }
-            if (page == Page.OVERVIEW) {
-                row(text("interest", label("interest", word(state, "interest", "NONE")))); row(text("temperament", label("temperament", word(state, "temperament", "NONE"))));
-                row(text("professions", label("profession", word(state, "primary", "NONE")), label("profession", word(state, "secondary", "NONE"))));
-                if (state.has("abilities")) for (var entry : state.getAsJsonArray("abilities")) {
-                    JsonObject ability = Objects.requireNonNull(entry.getAsJsonObject());
-                    row(text("profession_detail", label("profession", word(ability, "profession", "NONE")), text("ability." + word(ability, "id", "NONE").toLowerCase(java.util.Locale.ROOT))));
-                    row(text(flag(ability, "implemented") ? "ability_active" : "ability_pending"));
-                }
-                rows.add(new Row(text("stress", number(state, "stress"), number(state, "loyalty")), null, true, number(state, "stress") / 100));
+            if (!writable) { row(text("read_only")); relayout(); scroll = 0; return; }
+            JsonObject confirming = pendingOrder;
+            if (confirming != null) {
+                row(text("confirm_warning")); row(text("target", word(confirming, "target", "")));
+                row(text("confirm_order"), "confirm_order", writable); row(text("cancel_order"), "cancel_order", true);
+            } else if (page == Page.OVERVIEW) {
+                bar(text("stress_only", number(state, "stress")), number(state, "stress") / 100);
+                row(text("loyalty_only", number(state, "loyalty")));
                 row(text("life", number(state, "health"), number(state, "hunger"), number(state, "rest") * 100));
                 if (state.has("needs")) {
                     var needs = Objects.requireNonNull(state.getAsJsonObject("needs"));
-                    row(text("needs", number(needs, "hydration"), number(needs, "temperature"), number(needs, "social")));
-                    row(text("need_speed", number(needs, "workSpeed") * 100));
+                    row(text("water_status", number(needs, "hydration"))); row(text("temperature_status", number(needs, "temperature")));
                 }
+                row(text("professions", label("profession", word(state, "primary", "NONE")), label("profession", word(state, "secondary", "NONE"))));
                 row(text(flag(state, "homeValid") ? "home" : "homeless", state.has("home") ? position(Objects.requireNonNull(BlockPos.of(state.get("home").getAsLong()))) : text("none")));
-                row(text("assign_home"), "home", writable); row(text("growth_rule"));
-                if (state.has("attributes")) for (var entry : state.getAsJsonArray("attributes")) {
-                    JsonObject stat = Objects.requireNonNull(entry.getAsJsonObject()); String id = word(stat, "id", "");
-                    rows.add(new Row(text("attribute", label("attribute", id), word(stat, "points", "1"), text("effect." + id.toLowerCase(java.util.Locale.ROOT), number(stat, "effect"))), null, true, number(stat, "progress")));
-                }
-                row(text("sources"));
-                if (state.has("pressure")) for (var entry : state.getAsJsonArray("pressure")) {
+                row(text("pressure_toggle", pressureExpanded ? "−" : "+"), "pressure", true);
+                if (pressureExpanded && state.has("pressure")) for (var entry : state.getAsJsonArray("pressure")) {
                     JsonObject pressure = Objects.requireNonNull(entry.getAsJsonObject()); row(text("source", label("stresscause", word(pressure, "id", "")), number(pressure, "amount")));
                 }
+            } else if (page == Page.GROWTH) {
+                row(text("interest", label("interest", word(state, "interest", "NONE")))); row(text("temperament", label("temperament", word(state, "temperament", "NONE"))));
+                row(text("open_learning"), "open_learning", true); row(text("growth_rule"));
+                if (state.has("attributes")) for (var entry : state.getAsJsonArray("attributes")) {
+                    JsonObject stat = Objects.requireNonNull(entry.getAsJsonObject()); String id = word(stat, "id", "");
+                    bar(text("attribute", label("attribute", id), word(stat, "points", "1"), text("effect." + id.toLowerCase(java.util.Locale.ROOT), number(stat, "effect"))), number(stat, "progress"));
+                }
+                if (state.has("abilities")) for (var entry : state.getAsJsonArray("abilities")) {
+                    JsonObject ability = Objects.requireNonNull(entry.getAsJsonObject()); row(text("profession_detail", label("profession", word(ability, "profession", "NONE")), text("ability." + word(ability, "id", "NONE").toLowerCase(java.util.Locale.ROOT))));
+                    row(text(flag(ability, "implemented") ? "ability_active" : "ability_pending"));
+                }
                 row(text("mined", worker.mined()));
-            } else if (page == Page.SOCIAL) {
-                row(text("social_rule")); row(text("water_rule")); row(text("climate_rule"));
-                row(text("loyalty_care_rule"));
+            } else if (page == Page.LIFE) {
+                row(text(flag(state, "homeValid") ? "home" : "homeless", state.has("home") ? position(Objects.requireNonNull(BlockPos.of(state.get("home").getAsLong()))) : text("none")));
+                row(text("assign_home"), "home", writable);
                 if (state.has("needs")) {
                     var needs = Objects.requireNonNull(state.getAsJsonObject("needs"));
                     row(text("needs", number(needs, "hydration"), number(needs, "temperature"), number(needs, "social")));
-                    row(text("life_practice", number(needs, "drinks"), number(needs, "meals")));
+                    row(text("need_speed", number(needs, "workSpeed") * 100)); row(text("life_practice", number(needs, "drinks"), number(needs, "meals")));
                 }
                 for (var facility : ColonyWorkClient.facilities()) if (facility.kind().equals("WATER_PUMP") || facility.kind().equals("MEETING_POINT"))
-                    row(text("life_facility", Objects.requireNonNull(Component.translatable("block.colonycamera." + (facility.kind().equals("WATER_PUMP") ? "water_pump" : "meeting_point"))), position(facility.pos()),
-                            Objects.requireNonNull(Component.translatable("colonycamera.life.facility." + word(facility.detail(), "status", "denied")))));
-                row(text("relationships"));
+                    row(text("life_facility", Objects.requireNonNull(Component.translatable("block.colonycamera." + (facility.kind().equals("WATER_PUMP") ? "water_pump" : "meeting_point"))), position(facility.pos()), Objects.requireNonNull(Component.translatable("colonycamera.life.facility." + word(facility.detail(), "status", "denied")))));
+                row(text("water_rule")); row(text("climate_rule")); row(text("loyalty_care_rule"));
+            } else if (page == Page.SOCIAL) {
+                row(text("social_rule")); row(text("relationships"));
                 if (!state.has("relationships") || state.getAsJsonArray("relationships").isEmpty()) row(text("no_relations"));
                 else for (var entry : state.getAsJsonArray("relationships")) {
                     var relation = Objects.requireNonNull(entry.getAsJsonObject()); double affinity = number(relation, "affinity");
@@ -175,7 +230,7 @@ public final class WorkerPanel {
                 row(text("task_rule"));
                 JsonObject preferences = state.has("preferences") ? Objects.requireNonNull(state.getAsJsonObject("preferences")) : new JsonObject();
                 for (var task : WorkerPreferences.Task.values()) row(text("task", text("task." + task.name().toLowerCase(java.util.Locale.ROOT)), text(flag(preferences, Objects.requireNonNull(task.name())) ? "enabled" : "disabled")), "task_" + task.name(), writable);
-                row(text("cargo_rule"));
+                row(text("cargo_rule")); row(text("open_orders"), "open_orders", writable);
             } else if (page == Page.EQUIPMENT) {
                 row(text("equipment_rule"));
                 if (state.has("equipment")) for (var entry : state.getAsJsonArray("equipment")) {
@@ -188,7 +243,7 @@ public final class WorkerPanel {
                 JsonObject preferences = state.has("preferences") ? Objects.requireNonNull(state.getAsJsonObject("preferences")) : new JsonObject();
                 row(text("automatic_tools", text(flag(preferences, "automaticTools") ? "enabled" : "disabled")), "automatic_tools", writable);
             }
-            if (state.has("directive")) {
+            if (pendingOrder == null && state.has("directive")) {
                 JsonObject directive = Objects.requireNonNull(state.getAsJsonObject("directive"));
                 row(text("directive", text("directive." + word(directive, "kind", "").toLowerCase(java.util.Locale.ROOT)), word(directive, "course", "")));
                 rows.add(new Row(text("learning_progress", number(directive, "progress") / Math.max(1, number(directive, "duration")) * 100), null, true,
@@ -196,9 +251,13 @@ public final class WorkerPanel {
                 row(text("stop"), "stop", writable);
             }
         }
-        scroll = Math.max(0, Math.min(scroll, Math.max(0, rows.size() - visibleRows())));
+        relayout(); scroll = Math.max(0, Math.min(scroll, Math.max(0, rows.size() - visibleRows())));
     }
     private void act(String action) {
+        if (action.equals("pressure")) { pressureExpanded = !pressureExpanded; return; }
+        if (action.equals("open_learning") || action.equals("open_orders")) { page = action.equals("open_learning") ? Page.LEARNING : Page.ORDERS; scroll = 0; relayout(); return; }
+        if (action.equals("cancel_order")) { pendingOrder = null; scroll = 0; relayout(); return; }
+        if (action.equals("confirm_order")) { JsonObject intent = pendingOrder; pendingOrder = null; if (intent != null) ColonyWorkClient.request("worker", intent); scroll = 0; relayout(); return; }
         var selectedWorker = worker();
         if (selectedWorker != null && action.startsWith("task_")) {
             String task = Objects.requireNonNull(action.substring(5)); JsonObject payload = personIntent("task"); payload.addProperty("task", task);
@@ -238,7 +297,8 @@ public final class WorkerPanel {
                     case "execute", "sacrifice" -> { UUID selectedTarget = action.equals("execute") ? target : undertaking; if (selectedTarget == null) return; payload.addProperty("operation", action); payload.addProperty("target", selectedTarget.toString()); }
                     default -> payload.addProperty("operation", action);
                 }
-                ColonyWorkClient.request("worker", payload);
+                if (action.equals("execute") || action.equals("sacrifice")) { pendingOrder = payload; scroll = 0; relayout(); }
+                else ColonyWorkClient.request("worker", payload);
             }
         }
     }
@@ -256,7 +316,15 @@ public final class WorkerPanel {
         for (var project : ConstructionClient.projects()) if (project.id().equals(undertaking)) return ColonyWorkClient.text(project.name()); return text("none");
     }
     @Nonnull private Component targetName() { for (var value : ColonyWorkClient.targets()) if (value.id().equals(target)) return Objects.requireNonNull(Component.literal(value.name() + " · " + value.id().toString().substring(0, 8))); return text("none"); }
-    private void row(Component label) { rows.add(new Row(label, null, true, -1)); }
+    private void row(Component label) {
+        Font current = font;
+        if (current == null || layout.content.width() < 12) { rows.add(new Row(label, null, true, -1)); return; }
+        for (FormattedCharSequence line : current.split(label, layout.content.width() - 6)) rows.add(new Row(label, null, true, -1, Objects.requireNonNull(line)));
+    }
+    private void bar(Component label, double fraction) {
+        int before = rows.size(); row(label);
+        if (rows.size() > before) { Row last = Objects.requireNonNull(rows.remove(rows.size() - 1)); rows.add(new Row(last.text(), null, true, Math.max(0, Math.min(1, fraction)), last.line())); }
+    }
     private void row(Component label, String action, boolean enabled) { rows.add(new Row(label, action, enabled, -1)); }
     @Nonnull private static Component label(Enum<?> value) { return Objects.requireNonNull(Component.translatable(WorkerProfile.key(value))); }
     @Nonnull private static Component label(String type, String value) { return Objects.requireNonNull(Component.translatable("colonycamera.worker." + type + "." + value.toLowerCase(java.util.Locale.ROOT))); }
@@ -270,6 +338,6 @@ public final class WorkerPanel {
     private static double number(JsonObject value, String key) { return value.has(key) ? value.get(key).getAsDouble() : 0; }
     private static boolean flag(JsonObject value, String key) { return value.has(key) && value.get(key).getAsBoolean(); }
     private static void draw(GuiGraphics graphics, Font font, Component text, int x, int y, int width, int colour) {
-        if (width > 0) graphics.drawString(font, Objects.requireNonNull(font.plainSubstrByWidth(Objects.requireNonNull(text.getString()), width)), x, y, colour, false);
+        UiDraw.fitted(graphics, font, text, x, y, width, colour);
     }
 }
